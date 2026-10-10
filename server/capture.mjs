@@ -1,5 +1,6 @@
 // 실시간 캡처 헬퍼: dumpcap(Wireshark에 포함)을 실행해 캡처 스트림을 WebSocket으로 브라우저에 전달한다.
 // 브라우저는 네트워크 카드에 직접 접근할 수 없어서 이 로컬 프로세스가 대신 캡처한다.
+// 화면에 보여 줄 문장은 브라우저 쪽 언어 사전에 있으므로 여기서는 오류 코드만 보낸다.
 import { spawn, execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
@@ -58,7 +59,7 @@ export function attachCapture(httpServer, middlewares) {
       (interfaces) => res.end(JSON.stringify({ interfaces })),
       () => {
         res.statusCode = 503;
-        res.end(JSON.stringify({ error: 'dumpcap을 찾지 못했습니다. Wireshark(Npcap 포함)를 설치해 주세요.' }));
+        res.end(JSON.stringify({ error: 'dumpcap-missing' }));
       },
     );
   });
@@ -99,13 +100,13 @@ function startCapture(ws, iface) {
   });
   child.on('error', () => {
     if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({ error: 'dumpcap을 실행하지 못했습니다. Wireshark(Npcap 포함)가 설치되어 있는지 확인해 주세요.' }));
+      ws.send(JSON.stringify({ error: 'dumpcap-missing' }));
       ws.close();
     }
   });
   child.on('exit', (code) => {
     if (ws.readyState === ws.OPEN) {
-      if (code) ws.send(JSON.stringify({ error: `캡처가 중단되었습니다. ${stderr.trim().split(/\r?\n/).pop() ?? ''}` }));
+      if (code) ws.send(JSON.stringify({ error: 'capture-stopped', detail: stderr.trim().split(/\r?\n/).pop() ?? '' }));
       ws.close();
     }
   });
