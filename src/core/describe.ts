@@ -8,7 +8,7 @@ export function flowGuide(flow: Flow, L: Messages): string {
 }
 
 export function endpointName(ep: Endpoint, names: Map<string, string>): string {
-  return ep.label ?? names.get(ep.addr) ?? ep.addr;
+  return ep.label ?? ep.name ?? names.get(ep.addr) ?? ep.addr;
 }
 
 export function endpointAddr(ep: Endpoint): string {
@@ -19,7 +19,7 @@ export function endpointAddr(ep: Endpoint): string {
 
 export function flowTitle(flow: Flow, names: Map<string, string>, L: Messages): string {
   const m = L.flow;
-  const peer = flow.host ?? names.get(flow.b.addr) ?? flow.b.addr;
+  const peer = flow.host ?? flow.b.name ?? names.get(flow.b.addr) ?? flow.b.addr;
   switch (flow.app) {
     case 'DNS':
     case 'mDNS':

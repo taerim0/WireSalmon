@@ -30,11 +30,11 @@ export type Stage = 'open' | 'data' | 'close';
 
 /** 진단과 시간 분해에 쓰는, 언어와 무관한 패킷 정보 */
 export interface PacketInfo {
-  dns?: { response: boolean; rcode: number };
+  dns?: { response: boolean; rcode: number; answers: number };
   http?: { method?: string; status?: number; reason?: string };
   tlsHello?: 'client' | 'server';
   tlsAlert?: { fatal: boolean; code: number };
-  icmp?: { type: number; v6: boolean; echo?: 'request' | 'reply'; seq?: number };
+  icmp?: { type: number; code: number; v6: boolean; echo?: 'request' | 'reply'; seq?: number };
   arp?: 'request' | 'reply';
   dhcp?: number;
 }
@@ -73,6 +73,8 @@ export interface Endpoint {
   addr: string;
   port?: number;
   label?: string;
+  /** 대화가 시작될 때 알고 있던 이름. 같은 주소를 여러 사이트가 쓰기 때문에 그 시점의 이름을 붙잡아 둔다. */
+  name?: string;
 }
 
 export interface TcpState {
@@ -83,8 +85,11 @@ export interface TcpState {
   rst: boolean;
   isn: { a?: number; b?: number };
   maxEnd: { a?: number; b?: number };
+  /** maxEnd를 마지막으로 늘린 패킷의 시각 */
+  maxEndTs: { a?: number; b?: number };
   dataBytes: number;
   retransmits: number;
+  outOfOrder: number;
 }
 
 /** 두 상대가 주고받은 패킷 묶음 (하나의 "대화") */

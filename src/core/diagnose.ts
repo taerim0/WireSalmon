@@ -40,6 +40,24 @@ export function diagnose(flow: Flow, names: Map<string, string>, L: Messages, no
     }
   };
 
+  /** DNS 질문과 답을 살핀다. UDP든 TCP든 내용은 같다. */
+  const dnsFindings = () => {
+    const queries = packets.filter((p) => p.info?.dns && !p.info.dns.response);
+    const answers = packets.filter((p) => p.info?.dns?.response);
+    if (answers.length === 0) {
+      if (queries.length && now - queries[0].ts > WAIT_DNS) add('bad', m.dnsNoAnswer(queries.length));
+      return;
+    }
+    const codes = answers.map((p) => p.info!.dns!.rcode);
+    const other = codes.find((code) => code !== 0);
+    if (codes.includes(3)) add('warn', m.nxdomain(flow.host ?? '?'));
+    else if (codes.includes(2)) add('bad', m.servfail);
+    else if (codes.includes(5)) add('warn', m.dnsRefused);
+    else if (other) add('warn', m.dnsError(other));
+    else if (answers.every((p) => p.info!.dns!.answers === 0)) add('info', m.dnsNoData);
+    else add('ok', m.dnsOk);
+  };
+
   if (flow.tcp) {
     const s = flow.tcp;
     const syns = packets.filter((p) => p.fromA && p.tcp && (p.tcp.flags & (SYN | ACK)) === SYN);
@@ -50,8 +68,11 @@ export function diagnose(flow: Flow, names: Map<string, string>, L: Messages, no
       else add('info', m.connecting);
     } else if (rstAt >= 0) {
       const closedFirst = packets.slice(0, rstAt).some((p) => p.tcp && p.tcp.flags & FIN);
+      const who = endpointName(packets[rstAt].fromA ? flow.a : flow.b, names);
       if (closedFirst) add('info', m.resetAfterClose);
-      else add('warn', m.aborted(endpointName(packets[rstAt].fromA ? flow.a : flow.b, names)));
+      // 접속한 쪽 프로그램이 볼일을 마치고 연결을 바로 닫는 일은 흔하다
+      else if (packets[rstAt].fromA && s.dataBytes > 0) add('info', m.closedByReset(who));
+      else add('warn', m.aborted(who));
     }
     if (s.retransmits) add(s.retransmits >= 3 ? 'warn' : 'info', m.retransmits(s.retransmits));
 
@@ -66,24 +87,14 @@ export function diagnose(flow: Flow, names: Map<string, string>, L: Messages, no
       const meaning = L.http.status[String(status)] ?? p.info?.http?.reason ?? '';
       add(status >= 500 ? 'bad' : 'warn', status >= 500 ? m.httpServerError(status, meaning) : m.httpClientError(status, meaning));
     }
+    if (flow.app === 'DNS') dnsFindings();
     addSlow();
     if (s.syn && s.established && !out.some((f) => f.tone === 'bad' || f.tone === 'warn')) add('ok', m.connected);
     return out;
   }
 
   if (flow.app === 'DNS') {
-    const queries = packets.filter((p) => p.info?.dns && !p.info.dns.response);
-    const answers = packets.filter((p) => p.info?.dns?.response);
-    if (answers.length === 0) {
-      if (queries.length && now - queries[0].ts > WAIT_DNS) add('bad', m.dnsNoAnswer(queries.length));
-      return out;
-    }
-    const rcode = answers[0].info!.dns!.rcode;
-    if (rcode === 3) add('warn', m.nxdomain(flow.host ?? '?'));
-    else if (rcode === 2) add('bad', m.servfail);
-    else if (rcode === 5) add('warn', m.dnsRefused);
-    else if (rcode) add('warn', m.dnsError(rcode));
-    else add('ok', m.dnsOk);
+    dnsFindings();
     addSlow();
     return out;
   }
@@ -102,15 +113,19 @@ export function diagnose(flow: Flow, names: Map<string, string>, L: Messages, no
 
   if (flow.app === 'ICMP' || flow.app === 'ICMPv6') {
     const types = new Set(packets.map((p) => (p.info?.icmp ? `${p.info.icmp.v6 ? 6 : 4}:${p.info.icmp.type}` : '')));
-    if (types.has('4:3') || types.has('6:1')) add('warn', m.unreachable);
+    const unreachable = packets.filter((p) => p.info?.icmp && p.info.icmp.type === (p.info.icmp.v6 ? 1 : 3));
+    // "그 포트에는 아무도 없다"는 목적지 컴퓨터가 직접 보내는 답이라 경로 문제와 구별한다
+    const portOnly = unreachable.every((p) => p.info!.icmp!.code === (p.info!.icmp!.v6 ? 4 : 3));
+    if (unreachable.length) add(portOnly ? 'info' : 'warn', portOnly ? m.portUnreachable : m.unreachable);
     if (types.has('4:11') || types.has('6:3')) add('info', m.ttlExpired);
     return out;
   }
 
   if (flow.app === 'ARP') {
-    const asks = packets.filter((p) => p.info?.arp === 'request' && p.src !== p.dst);
+    // 자기 주소 알림과 주소 충돌 확인은 답이 없는 것이 정상이라 뺀다
+    const asks = packets.filter((p) => p.info?.arp === 'request' && p.src !== p.dst && p.src !== '0.0.0.0');
     const answered = packets.some((p) => p.info?.arp === 'reply');
-    if (asks.length && !answered && now - asks[0].ts > WAIT_ARP) add('warn', m.arpNoReply(asks[0].dst));
+    if (asks.length && !answered && now - asks[0].ts > WAIT_ARP) add('info', m.arpNoReply(asks[0].dst));
     else if (answered) add('ok', m.arpOk);
     return out;
   }
@@ -119,7 +134,7 @@ export function diagnose(flow: Flow, names: Map<string, string>, L: Messages, no
     const types = new Set(packets.map((p) => p.info?.dhcp));
     if (types.has(6)) add('bad', m.dhcpNak);
     else if (types.has(5)) add('ok', m.dhcpOk);
-    else if (types.has(1) && !types.has(2) && now - packets[0].ts > WAIT_DHCP) add('bad', m.dhcpNoOffer);
+    else if (types.has(1) && !types.has(2) && now - packets[0].ts > WAIT_DHCP) add('info', m.dhcpNoOffer);
   }
   return out;
 }

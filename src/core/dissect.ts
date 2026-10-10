@@ -205,6 +205,7 @@ export function createDissector(L: Messages) {
     p.info = { arp: op === 1 ? 'request' : 'reply' };
     p.flowKey = pairKey('arp', senderIp, targetIp);
     if (senderIp === targetIp) p.summary = m.announce(senderIp);
+    else if (senderIp === '0.0.0.0') p.summary = m.probe(targetIp);
     else if (op === 1) p.summary = m.ask(targetIp, senderIp);
     else p.summary = m.answer(senderIp, senderMac);
     p.layers.push({
@@ -276,10 +277,12 @@ export function createDissector(L: Messages) {
     const dst = ipv6(d, o + 24);
     const end = payloadLen ? Math.min(d.length, o + 40 + payloadLen) : d.length;
     let off = o + 40;
+    let laterFragment = false;
     // 확장 헤더 건너뛰기
     while (next === 0 || next === 43 || next === 60 || next === 44) {
       need(d, off, 8);
       const len = next === 44 ? 8 : (d[off + 1] + 1) * 8;
+      if (next === 44 && u16(d, off + 2) & 0xfff8) laterFragment = true;
       next = d[off];
       off += len;
     }
@@ -304,6 +307,10 @@ export function createDissector(L: Messages) {
         f(m.payloadLength, L.packet.bytes(payloadLen)),
       ],
     });
+    if (laterFragment) {
+      p.summary = m.laterFragment;
+      return;
+    }
     transport(p, d, off, end, next);
   }
 
@@ -322,7 +329,7 @@ export function createDissector(L: Messages) {
     const meaning = (v6 ? m.v6 : m.v4)[type] ?? m.typeN(type);
     p.proto = v6 ? 'ICMPv6' : 'ICMP';
     p.appLabel = isEcho ? 'PING' : p.proto;
-    p.info = { icmp: { type, v6, ...(isEcho ? { echo: type === 8 || type === 128 ? 'request' : 'reply', seq: u16(d, o + 6) } : {}) } };
+    p.info = { icmp: { type, code: d[o + 1], v6, ...(isEcho ? { echo: type === 8 || type === 128 ? 'request' : 'reply', seq: u16(d, o + 6) } : {}) } };
     p.summary = meaning;
     p.flowKey = pairKey(v6 ? 'icmp6' : 'icmp', p.src, p.dst);
     p.layers.push({
@@ -377,6 +384,11 @@ export function createDissector(L: Messages) {
       ],
     });
     if (payload.length === 0) return;
+    // TCP로 보내는 DNS는 메시지 앞에 2바이트 길이가 붙는다. 한 패킷에 온전히 담긴 것만 해석한다.
+    if ((sp === 53 || dp === 53) && payload.length >= 14 && u16(d, headerEnd) >= 12 && u16(d, headerEnd) <= payload.length - 2) {
+      dns(p, d, headerEnd + 2, end, 'DNS');
+      return;
+    }
     if (http(p, d, headerEnd, end) || tls(p, d, headerEnd, end, sp === 443 || dp === 443)) return;
     dataLayer(p, d, headerEnd, end);
   }
@@ -408,7 +420,8 @@ export function createDissector(L: Messages) {
     else if (has(5353)) dns(p, d, bodyStart, end, 'mDNS');
     else if (has(5355)) dns(p, d, bodyStart, end, 'LLMNR');
     else if (has(67) || has(68)) dhcp(p, d, bodyStart, end);
-    else if (has(443)) {
+    else if (has(443) && d[bodyStart] & 0x40) {
+      // QUIC 패킷은 첫 바이트의 0x40 비트가 항상 켜져 있다
       p.proto = 'QUIC';
       p.appLabel = 'QUIC';
       p.summary = L.data.sentQuic(end - bodyStart);
@@ -473,7 +486,7 @@ export function createDissector(L: Messages) {
     const fields: Field[] = [f(m.kind, response ? m.response : m.query), f(m.id, `0x${hex(u16(d, o), 4)}`, m.idHelp)];
     p.proto = label;
     p.appLabel = label;
-    p.info = { dns: { response, rcode } };
+    p.info = { dns: { response, rcode, answers: an } };
     let off = o + 12;
     let qname = '';
     let qtype = 1;
@@ -517,6 +530,7 @@ export function createDissector(L: Messages) {
     if (!response) p.summary = m.ask(qname, m.types[qtype] ?? m.info);
     else if (rcode === 3) p.summary = m.noSuchName(qname);
     else if (answers.length) p.summary = m.resolved(qname, answers[0], answers.length - 1);
+    else if (an === 0) p.summary = m.noData(qname);
     else p.summary = m.answered(qname, an);
     p.layers.push({ id: 'dns', brief: `${response ? m.response : m.query}${qname ? `: ${qname}` : ''}`, name: label, osi: m.osi, role: label === 'DNS' ? m.role : m.roleLocal, start: o, end, fields });
   }
@@ -623,6 +637,8 @@ export function createDissector(L: Messages) {
     /** [프로토콜 용어, 쉬운 설명] */
     const messages: [string, string][] = [];
     let sni: string | undefined;
+    // Change Cipher Spec 뒤의 핸드셰이크 메시지는 암호화되어 있어 종류를 읽을 수 없다
+    let encrypted = false;
     const info: PacketInfo = {};
     let i = o;
     while (isRecord(i) && messages.length < 8) {
@@ -631,13 +647,14 @@ export function createDissector(L: Messages) {
       if (type === 22) {
         const kind = d[i + 5];
         const bodyLen = (d[i + 6] << 16) | u16(d, i + 7);
-        if (TLS_HANDSHAKE[kind] && bodyLen + 4 <= len) {
+        if (!encrypted && TLS_HANDSHAKE[kind] && bodyLen + 4 <= len) {
           messages.push([TLS_HANDSHAKE[kind], m.handshake[kind]]);
           if (kind === 1) sni = tlsServerName(d, i + 5, Math.min(end, i + 5 + len));
           if (kind === 1 || kind === 2) info.tlsHello ??= kind === 1 ? 'client' : 'server';
         } else messages.push(['Handshake', m.encryptedHandshake]);
       } else {
         // 암호화되기 전의 경고는 2바이트(심각도, 사유)라서 읽을 수 있다
+        if (type === 20) encrypted = true;
         if (type === 21 && len === 2 && i + 7 <= end) info.tlsAlert = { fatal: d[i + 5] === 2, code: d[i + 6] };
         messages.push([TLS_RECORDS[type], m.records[type]]);
       }

@@ -139,7 +139,7 @@ assert.deepEqual(
     ['TCP', 'bad'], // 연결 거부
     ['TCP', 'bad'], // 응답 없음
     ['PING', 'bad'],
-    ['ARP', 'warn'],
+    ['ARP', null], // 답이 안 보여도 다른 장비의 질문일 수 있어 문제로 단정하지 않는다
     ['DNS', 'bad'], // 답 없는 DNS 서버
     ['DNS', null],
     ['HTTP', 'warn'], // 연결은 됐지만 서버가 느림
