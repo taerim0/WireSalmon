@@ -784,3 +784,10 @@ input[type='search'] {
 .language {
   padding: 5px 8px;
 }
+
+.welcome .privacy {
+  margin-top: 10px;
+  padding-left: 10px;
+  border-left: 3px solid var(--ok);
+  color: var(--muted);
+}

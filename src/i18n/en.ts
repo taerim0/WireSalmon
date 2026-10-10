@@ -433,6 +433,7 @@ export const en: Messages = {
     hexLimit: (limit, total) => `Only the first ${limit} bytes are shown (${total} in total).`,
     welcomeTitle: 'Read packets in plain language',
     welcomeIntro: 'WireSalmon is a learning tool that groups the packets crossing your network into conversations: who talked to whom, and about what.',
+    privacy: 'Captures are decoded inside this browser and sent nowhere. You can check for yourself: keep the Network tab of the developer tools open while you load a file.',
     step1Title: 'Start with the sample',
     step1Body: 'Follow, step by step, what happens when a device joins Wi-Fi and opens a website.',
     step2Title: 'Open a capture file',

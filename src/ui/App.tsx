@@ -300,6 +300,7 @@ function Welcome({ onSample, liveAvailable }: { onSample: () => void; liveAvaila
     <div className="welcome">
       <h2>{ui.welcomeTitle}</h2>
       <p>{ui.welcomeIntro}</p>
+      <p className="privacy">{ui.privacy}</p>
       <ol>
         <li>
           <b>{ui.step1Title}</b> — {ui.step1Body}

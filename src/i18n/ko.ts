@@ -434,6 +434,7 @@ export const ko = {
     hexLimit: (limit: number, total: number) => `처음 ${limit}바이트만 표시합니다 (전체 ${total}바이트).`,
     welcomeTitle: '패킷을 쉬운 말로 읽어 보세요',
     welcomeIntro: 'WireSalmon은 네트워크를 오가는 패킷을 누가 누구와 무슨 대화를 했는지로 묶어서 보여 주는 학습용 도구입니다.',
+    privacy: '캡처는 이 브라우저 안에서만 해석하고 어디에도 보내지 않습니다. 개발자 도구의 네트워크 탭을 열어 두고 파일을 열어 보면 직접 확인할 수 있습니다.',
     step1Title: '샘플로 시작하기',
     step1Body: '와이파이에 접속해 웹사이트를 여는 동안 일어나는 일을 순서대로 따라가 봅니다.',
     step2Title: '캡처 파일 열기',
