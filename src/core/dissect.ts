@@ -1,7 +1,7 @@
 import type { Messages } from '../i18n/index.ts';
 import { hex, ipv4, ipv6, mac, printable, u16, u32, utf8 } from './bytes.ts';
 import type { RawPacket } from './reader.ts';
-import type { Field, Packet } from './types.ts';
+import type { Field, Packet, PacketInfo } from './types.ts';
 
 const f = (label: string, value: string | number, help?: string): Field => ({ label, value: String(value), help });
 
@@ -201,6 +201,7 @@ export function createDissector(L: Messages) {
     p.dst = targetIp;
     p.proto = 'ARP';
     p.appLabel = 'ARP';
+    p.info = { arp: op === 1 ? 'request' : 'reply' };
     p.flowKey = pairKey('arp', senderIp, targetIp);
     if (senderIp === targetIp) p.summary = m.announce(senderIp);
     else if (op === 1) p.summary = m.ask(targetIp, senderIp);
@@ -317,6 +318,7 @@ export function createDissector(L: Messages) {
     const meaning = (v6 ? m.v6 : m.v4)[type] ?? m.typeN(type);
     p.proto = v6 ? 'ICMPv6' : 'ICMP';
     p.appLabel = isEcho ? 'PING' : p.proto;
+    p.info = { icmp: { type, v6, ...(isEcho ? { echo: type === 8 || type === 128 ? 'request' : 'reply', seq: u16(d, o + 6) } : {}) } };
     p.summary = meaning;
     p.flowKey = pairKey(v6 ? 'icmp6' : 'icmp', p.src, p.dst);
     p.layers.push({
@@ -463,6 +465,7 @@ export function createDissector(L: Messages) {
     const fields: Field[] = [f(m.kind, response ? m.response : m.query), f(m.id, `0x${hex(u16(d, o), 4)}`, m.idHelp)];
     p.proto = label;
     p.appLabel = label;
+    p.info = { dns: { response, rcode } };
     let off = o + 12;
     let qname = '';
     let qtype = 1;
@@ -542,6 +545,7 @@ export function createDissector(L: Messages) {
     p.proto = 'DHCP';
     p.appLabel = 'DHCP';
     p.fromClient = op === 1;
+    p.info = { dhcp: type };
     p.flowKey = `dhcp|${xid}`;
     p.summary = type === 2 || type === 5 ? `${meaning} — ${yourIp} (${name})` : `${meaning} (${name})`;
     p.layers.push({
@@ -583,12 +587,14 @@ export function createDissector(L: Messages) {
       const [, method, path] = req;
       const what = m.methods[method] ?? method;
       p.host = headers.find(([k]) => k.toLowerCase() === 'host')?.[1];
+      p.info = { http: { method } };
       p.summary = m.request(method, path.length > 60 ? `${path.slice(0, 60)}…` : path, what, path === '/');
       fields.push(f(m.method, `${method} — ${what}`, m.methodHelp));
       fields.push(f(m.path, path, m.pathHelp));
     } else if (res) {
       const [, status, reason] = res;
       const meaning = m.status[status] ?? m.statusClass(status[0]);
+      p.info = { http: { status: Number(status), reason } };
       p.summary = `${status} ${reason} — ${meaning}`;
       fields.push(f(m.statusLabel, `${status} ${reason} — ${meaning}`, m.statusHelp));
     }
@@ -608,6 +614,7 @@ export function createDissector(L: Messages) {
     /** [프로토콜 용어, 쉬운 설명] */
     const messages: [string, string][] = [];
     let sni: string | undefined;
+    const info: PacketInfo = {};
     let i = o;
     while (isRecord(i) && messages.length < 8) {
       const type = d[i];
@@ -618,13 +625,19 @@ export function createDissector(L: Messages) {
         if (TLS_HANDSHAKE[kind] && bodyLen + 4 <= len) {
           messages.push([TLS_HANDSHAKE[kind], m.handshake[kind]]);
           if (kind === 1) sni = tlsServerName(d, i + 5, Math.min(end, i + 5 + len));
+          if (kind === 1 || kind === 2) info.tlsHello ??= kind === 1 ? 'client' : 'server';
         } else messages.push(['Handshake', m.encryptedHandshake]);
-      } else messages.push([TLS_RECORDS[type], m.records[type]]);
+      } else {
+        // 암호화되기 전의 경고는 2바이트(심각도, 사유)라서 읽을 수 있다
+        if (type === 21 && len === 2 && i + 7 <= end) info.tlsAlert = { fatal: d[i + 5] === 2, code: d[i + 6] };
+        messages.push([TLS_RECORDS[type], m.records[type]]);
+      }
       i += 5 + len;
     }
     p.proto = 'TLS';
     p.appLabel = web ? 'HTTPS' : 'TLS';
     p.host = sni;
+    p.info = info;
     p.summary = messages
       .slice(0, 3)
       .map(([name, meaning]) => (name === 'Application Data' ? meaning : `${meaning} (${name})`))

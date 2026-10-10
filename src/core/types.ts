@@ -26,6 +26,17 @@ export interface TcpInfo {
 
 export type Stage = 'open' | 'data' | 'close';
 
+/** 진단과 시간 분해에 쓰는, 언어와 무관한 패킷 정보 */
+export interface PacketInfo {
+  dns?: { response: boolean; rcode: number };
+  http?: { method?: string; status?: number; reason?: string };
+  tlsHello?: 'client' | 'server';
+  tlsAlert?: { fatal: boolean; code: number };
+  icmp?: { type: number; v6: boolean; echo?: 'request' | 'reply'; seq?: number };
+  arp?: 'request' | 'reply';
+  dhcp?: number;
+}
+
 export interface Packet {
   no: number;
   ts: number;
@@ -50,6 +61,7 @@ export interface Packet {
   /** 주소만으로 방향을 알 수 없을 때(DHCP 등) 해석기가 직접 지정 */
   fromClient?: boolean;
   truncated?: boolean;
+  info?: PacketInfo;
   flowId?: number;
   fromA?: boolean;
   stage?: Stage;
@@ -86,4 +98,6 @@ export interface Flow {
   firstTs: number;
   lastTs: number;
   tcp?: TcpState;
+  /** 이 대화 직전에 상대 주소를 알아낸 DNS 조회 */
+  lookup?: { name: string; ms: number; flowId: number };
 }

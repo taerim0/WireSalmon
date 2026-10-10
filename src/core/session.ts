@@ -19,8 +19,13 @@ export class Session {
   /** DNS 답변 등에서 알아낸 IP → 이름 */
   names = new Map<string, string>();
   t0 = 0;
+  /** 마지막 패킷의 시각. 아직 답이 없는지 판단하는 기준이 된다. */
+  lastTs = 0;
   private byKey = new Map<string, Flow>();
   private raws: RawPacket[] = [];
+  /** DNS 답변으로 알아낸 주소 → 그 조회에 걸린 시간 */
+  private lookups = new Map<string, NonNullable<Flow['lookup']>>();
+  private queryTs = new Map<number, number>();
   private L: Messages;
   private dissect: ReturnType<typeof createDissector>;
 
@@ -38,6 +43,8 @@ export class Session {
     this.flows = [];
     this.names = new Map();
     this.byKey = new Map();
+    this.lookups = new Map();
+    this.queryTs = new Map();
     this.raws = [];
     for (const raw of raws) this.add(raw);
   }
@@ -47,6 +54,7 @@ export class Session {
     this.raws.push(raw);
     if (this.packets.length === 0) this.t0 = raw.ts;
     this.packets.push(p);
+    this.lastTs = raw.ts;
     for (const [ip, name] of p.names ?? []) if (!this.names.has(ip)) this.names.set(ip, name);
 
     let flow = this.byKey.get(p.flowKey);
@@ -67,6 +75,14 @@ export class Session {
     if (p.appLabel && (flow.app === 'TCP' || flow.app === 'UDP' || flow.app === p.proto)) flow.app = p.appLabel;
     if (p.host && !flow.host) flow.host = p.host;
     if (flow.tcp) this.tcpStep(flow, p);
+    if (p.info?.dns) {
+      if (!p.info.dns.response) {
+        if (!this.queryTs.has(flow.id)) this.queryTs.set(flow.id, p.ts);
+      } else {
+        const asked = this.queryTs.get(flow.id);
+        if (asked !== undefined) for (const [ip, name] of p.names ?? []) this.lookups.set(ip, { name, ms: (p.ts - asked) * 1000, flowId: flow.id });
+      }
+    }
     return p;
   }
 
@@ -83,6 +99,7 @@ export class Session {
       flow.a = { addr: '', label: this.L.dhcp.client };
       flow.b = { addr: '', label: this.L.dhcp.server };
     }
+    if (p.tcp || p.proto === 'QUIC') flow.lookup = this.lookups.get(b.addr);
     if (p.tcp) flow.tcp = { syn: false, synAck: false, established: false, fin: { a: false, b: false }, rst: false, isn: {}, maxEnd: {}, dataBytes: 0, retransmits: 0 };
     return flow;
   }
