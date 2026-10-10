@@ -15,7 +15,7 @@ Wireshark shows you one packet per line. A beginner wants to know *what just hap
 - **Korean and English** — switch languages from the top bar at any time, even with a capture open. The choice is remembered, and the first visit follows the browser language.
 - **Three ways in** — a built-in sample, `.pcap` / `.pcapng` files (drag and drop), or live capture.
 
-Files are parsed inside the browser. Nothing is uploaded.
+Files are parsed inside the browser. Nothing is uploaded. See [Privacy](#privacy).
 
 ## Supported protocols
 
@@ -45,6 +45,19 @@ A browser cannot read a network card, so live capture goes through a small local
 The capture socket only accepts connections from the same page on `localhost`. Capture stops automatically at 50,000 packets.
 
 Tested on Windows 11. The helper also looks for `dumpcap` in the usual Linux and macOS locations, but those have not been tested yet.
+
+## Privacy
+
+Captures can hold passwords, cookies and internal addresses, so WireSalmon is built to keep them on your machine.
+
+- **There is no backend.** The site is static files. Capture files are decoded by JavaScript in your browser, and live capture runs between your own computer and your own browser.
+- **You can check it.** Open the developer tools, switch to the Network tab, then open a capture file. No request appears.
+- **The browser enforces it.** The built site carries a Content Security Policy that forbids connections to any other host. Even if the code changed, requests carrying your data elsewhere (fetch, WebSocket, images, form posts) would be refused by the browser.
+
+Limits worth knowing:
+
+- The policy is part of the built site (`npm run build`, `npm run preview`). The dev server (`npm run dev`) does not carry it, because its tooling needs inline scripts.
+- A policy in the page cannot stop someone from hosting a modified copy. For captures that matter, run WireSalmon from your own checkout.
 
 ## Scripts
 
