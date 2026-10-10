@@ -2,6 +2,8 @@
 
 **English** | [한국어](README.ko.md)
 
+**Try it: <https://taerim0.github.io/WireSalmon/>** (sample and file viewing; live capture needs a local run)
+
 Wireshark for humans — a learning-focused packet analyzer that groups packets into conversations and explains them in plain language.
 
 Wireshark shows you one packet per line. A beginner wants to know *what just happened*. WireSalmon reads the same captures and answers that question first.
