@@ -3,20 +3,26 @@ import { flowStatus, flowTitle } from '../src/core/describe.ts';
 import { CaptureReader } from '../src/core/reader.ts';
 import { buildWebVisitSample } from '../src/core/sample.ts';
 import { Session } from '../src/core/session.ts';
+import { en } from '../src/i18n/en.ts';
+import { ko } from '../src/i18n/ko.ts';
 
-function load(bytes: Uint8Array, chunkSize = bytes.length): Session {
+function load(bytes: Uint8Array, chunkSize = bytes.length, L = ko): Session {
   const reader = new CaptureReader();
-  const session = new Session();
+  const session = new Session(L);
   for (let o = 0; o < bytes.length; o += chunkSize) for (const raw of reader.push(bytes.subarray(o, o + chunkSize))) session.add(raw);
   return session;
 }
 
-const sample = buildWebVisitSample();
-const session = load(sample);
+function print(session: Session, L = ko) {
+  for (const p of session.packets) console.log(String(p.no).padStart(3), p.proto.padEnd(6), p.fromA ? '→' : '←', p.summary);
+  console.log();
+  for (const f of session.flows) console.log(`[${f.app}] ${flowTitle(f, session.names, L)} — ${f.packets.length}`, flowStatus(f, L).map((c) => c.label).join(' / '));
+  console.log();
+}
 
-for (const p of session.packets) console.log(String(p.no).padStart(3), p.proto.padEnd(6), p.fromA ? '→' : '←', p.summary);
-console.log();
-for (const f of session.flows) console.log(`[${f.app}] ${flowTitle(f, session.names)} — ${f.packets.length}개`, flowStatus(f).map((c) => c.label).join(' / '));
+const sample = buildWebVisitSample(en.sample.bodyLine);
+const session = load(sample);
+print(session);
 
 assert.equal(session.packets.length, 41);
 assert.ok(session.packets.every((p) => !p.truncated));
@@ -59,4 +65,46 @@ const ng = load(pcapng, 5);
 assert.equal(ng.packets.length, 1);
 assert.equal(ng.packets[0].proto, 'ARP');
 
-console.log('\n모든 검사 통과');
+// 영어: 같은 캡처가 영어 문장으로 풀리고, 구조(대화 묶음·단계)는 언어와 무관해야 한다
+const english = load(sample, sample.length, en);
+print(english, en);
+assert.deepEqual(
+  english.flows.map((f) => [f.app, f.packets.length]),
+  session.flows.map((f) => [f.app, f.packets.length]),
+);
+assert.deepEqual(
+  english.packets.map((p) => p.stage),
+  session.packets.map((p) => p.stage),
+);
+assert.match(english.flows[3].packets[0].summary, /^① Connection request/);
+assert.match(english.flows[3].packets[3].summary, /^GET \/ — fetch request/);
+assert.equal(flowTitle(english.flows[2], english.names, en), 'Name lookup: example.com');
+
+// 영어로 열었을 때 한국어 문장이 한 군데도 남아 있으면 안 된다
+const hangul = /[가-힣]/;
+for (const p of english.packets) {
+  assert.ok(!hangul.test(p.summary), `${p.no}: ${p.summary}`);
+  for (const layer of p.layers) {
+    assert.ok(!hangul.test(layer.name + layer.osi + layer.role), `${p.no}: ${layer.name}`);
+    for (const field of layer.fields) assert.ok(!hangul.test(field.label + field.value + (field.help ?? '')), `${p.no}: ${field.label}`);
+  }
+}
+for (const f of english.flows) {
+  assert.ok(!hangul.test(flowTitle(f, english.names, en) + (f.a.label ?? '') + (f.b.label ?? '')));
+  assert.ok(!hangul.test(flowStatus(f, en).map((c) => c.label).join('')));
+}
+
+// 열어 둔 캡처의 언어를 바꾸면 처음부터 그 언어로 연 것과 같아야 한다
+const switched = load(sample);
+switched.relocalize(en);
+assert.equal(switched.packets.length, 41);
+assert.deepEqual(
+  switched.packets.map((p) => p.summary),
+  english.packets.map((p) => p.summary),
+);
+assert.deepEqual(
+  switched.flows.map((f) => [f.id, f.a.label]),
+  english.flows.map((f) => [f.id, f.a.label]),
+);
+
+console.log('all checks passed');

@@ -1,34 +1,36 @@
 import { useState } from 'react';
 import { hex } from '../core/bytes.ts';
 import type { Layer, Packet } from '../core/types.ts';
+import { useMessages } from './locale.ts';
 import { seconds } from './views.tsx';
 
 const HEX_LIMIT = 1024;
 
 export function PacketDetail({ packet, t0 }: { packet: Packet; t0: number }) {
+  const L = useMessages();
   const [hover, setHover] = useState<number | null>(null);
   const [showHelp, setShowHelp] = useState(true);
   const active = hover === null ? null : packet.layers[hover];
   return (
     <div className="detail-body">
       <p className="muted">
-        {packet.no}번 패킷 · {seconds(packet.ts, t0)} · {packet.origLen}바이트
+        {L.ui.detailMeta(packet.no, seconds(packet.ts, t0, L), packet.origLen)}
       </p>
       <h2>{packet.summary}</h2>
-      {packet.truncated && <p className="status warn">패킷이 잘려 있어 일부만 해석했습니다.</p>}
+      {packet.truncated && <p className="status warn">{L.ui.truncated}</p>}
 
       <div className="detail-section">
-        <h3>봉투 구조 (캡슐화)</h3>
+        <h3>{L.ui.envelopes}</h3>
         <label className="muted">
-          <input type="checkbox" checked={showHelp} onChange={(e) => setShowHelp(e.target.checked)} /> 설명 보기
+          <input id="show-help" type="checkbox" checked={showHelp} onChange={(e) => setShowHelp(e.target.checked)} /> {L.ui.showHelp}
         </label>
       </div>
-      <p className="muted">패킷은 봉투 안에 봉투가 든 구조입니다. 바깥 봉투일수록 가까운 구간의 배달을 맡습니다.</p>
+      <p className="muted">{L.ui.envelopesHint}</p>
       {packet.layers.length > 0 && <Nested layers={packet.layers} index={0} showHelp={showHelp} onHover={setHover} />}
 
       <div className="detail-section">
-        <h3>실제 바이트</h3>
-        <span className="muted">{active ? `${active.name} 부분 표시 중` : '봉투에 마우스를 올리면 해당 부분이 표시됩니다'}</span>
+        <h3>{L.ui.rawBytes}</h3>
+        <span className="muted">{active ? L.ui.showing(active.name) : L.ui.hoverHint}</span>
       </div>
       <HexDump data={packet.data} from={active?.start ?? -1} to={active?.end ?? -1} />
     </div>
@@ -64,6 +66,7 @@ function Nested(props: { layers: Layer[]; index: number; showHelp: boolean; onHo
 }
 
 function HexDump({ data, from, to }: { data: Uint8Array; from: number; to: number }) {
+  const L = useMessages();
   const rows = [];
   const end = Math.min(data.length, HEX_LIMIT);
   for (let o = 0; o < end; o += 16) {
@@ -91,7 +94,7 @@ function HexDump({ data, from, to }: { data: Uint8Array; from: number; to: numbe
   return (
     <div className="hex mono">
       {rows}
-      {data.length > HEX_LIMIT && <p className="muted">처음 {HEX_LIMIT}바이트만 표시합니다 (전체 {data.length}바이트).</p>}
+      {data.length > HEX_LIMIT && <p className="muted">{L.ui.hexLimit(HEX_LIMIT, data.length)}</p>}
     </div>
   );
 }

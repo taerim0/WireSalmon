@@ -8,6 +8,15 @@ export interface RawPacket {
 
 const MAX_BLOCK = 64 * 1024 * 1024;
 
+/** 화면에 보여 줄 문장은 언어별 사전(errors)에서 code로 찾는다 */
+export class CaptureError extends Error {
+  code: 'format' | 'corrupt';
+  constructor(code: 'format' | 'corrupt') {
+    super(code);
+    this.code = code;
+  }
+}
+
 /**
  * pcap / pcapng 스트림 해석기.
  * 파일 전체를 한 번에 넣어도 되고, 실시간 캡처처럼 조각으로 나눠 넣어도 된다.
@@ -66,7 +75,7 @@ export class CaptureReader {
       0xa1b23c4d: [false, 1e-9],
     };
     const kind = kinds[magic];
-    if (!kind) throw new Error('pcap 또는 pcapng 형식의 캡처 파일이 아닙니다.');
+    if (!kind) throw new CaptureError('format');
     if (d.length - off < 24) return 0;
     [this.le, this.tsUnit] = kind;
     this.linkType = this.u32(off + 20) & 0xffff;
@@ -77,7 +86,7 @@ export class CaptureReader {
   private pcapRecord(off: number, out: RawPacket[]): number {
     if (this.buf.length - off < 16) return 0;
     const incl = this.u32(off + 8);
-    if (incl > MAX_BLOCK) throw new Error('캡처 파일이 손상되었습니다.');
+    if (incl > MAX_BLOCK) throw new CaptureError('corrupt');
     if (this.buf.length - off < 16 + incl) return 0;
     out.push({
       ts: this.u32(off) + this.u32(off + 4) * this.tsUnit,
@@ -98,7 +107,7 @@ export class CaptureReader {
       this.ifaces = [];
     }
     const total = this.u32(off + 4);
-    if (total < 12 || total > MAX_BLOCK) throw new Error('캡처 파일이 손상되었습니다.');
+    if (total < 12 || total > MAX_BLOCK) throw new CaptureError('corrupt');
     if (d.length - off < total) return 0;
     const body = off + 8;
     const bodyEnd = off + total - 4;

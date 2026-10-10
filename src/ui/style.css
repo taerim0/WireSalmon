@@ -780,3 +780,7 @@ input[type='search'] {
     flex-basis: 62px;
   }
 }
+
+.language {
+  padding: 5px 8px;
+}

@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { flowTitle } from '../core/describe.ts';
-import { CaptureReader } from '../core/reader.ts';
-import { SAMPLES } from '../core/sample.ts';
+import { CaptureError, CaptureReader } from '../core/reader.ts';
+import { buildWebVisitSample } from '../core/sample.ts';
 import { Session } from '../core/session.ts';
 import type { Flow } from '../core/types.ts';
+import { LOCALE_NAMES, LOCALES, type Locale, type Messages } from '../i18n/index.ts';
 import { PacketDetail } from './Detail.tsx';
+import { initialLocale, LocaleContext, saveLocale, useMessages } from './locale.ts';
 import { FlowList, FlowView, PacketTable } from './views.tsx';
 
 interface CaptureInterface {
@@ -13,15 +15,33 @@ interface CaptureInterface {
   address: string | null;
 }
 
+/** 어디서 온 캡처인지. 언어를 바꿔도 다시 그릴 수 있게 문장이 아니라 재료로 들고 있는다. */
+type Source = { kind: 'sample' } | { kind: 'file' | 'live'; name: string };
+
+type AppError = { key: 'format' | 'corrupt' | 'read' | 'liveParse' | 'liveConnect' | 'dumpcapMissing' | 'liveLimit' } | { key: 'captureStopped'; detail: string };
+
 /** 실시간 캡처가 브라우저를 멈추게 하지 않도록 두는 상한 */
 const MAX_LIVE_PACKETS = 50000;
 
+function errorText(error: AppError, L: Messages): string {
+  if (error.key === 'captureStopped') return L.errors.captureStopped(error.detail);
+  if (error.key === 'liveLimit') return L.errors.liveLimit(MAX_LIVE_PACKETS.toLocaleString(L.tag));
+  return L.errors[error.key];
+}
+
+function sourceText(source: Source, L: Messages): string {
+  if (source.kind === 'sample') return L.ui.sourceSample(L.sample.title);
+  return source.kind === 'file' ? L.ui.sourceFile(source.name) : L.ui.sourceLive(source.name);
+}
+
 export function App() {
+  const [locale, setLocale] = useState<Locale>(initialLocale);
+  const L = LOCALES[locale];
   const sessionRef = useRef<Session | null>(null);
   const [version, setVersion] = useState(0);
   const dirty = useRef(false);
-  const [source, setSource] = useState('');
-  const [error, setError] = useState('');
+  const [source, setSource] = useState<Source | null>(null);
+  const [error, setError] = useState<AppError | null>(null);
   const [flowId, setFlowId] = useState<number | null>(null);
   const [packetNo, setPacketNo] = useState<number | null>(null);
   const [tab, setTab] = useState<'flow' | 'packets'>('flow');
@@ -56,11 +76,23 @@ export function App() {
 
   useEffect(() => () => socket.current?.close(), []);
 
-  function reset(session: Session, label: string) {
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
+
+  function changeLocale(next: Locale) {
+    saveLocale(next);
+    setLocale(next);
+    // 이미 열어 둔 캡처도 새 언어로 다시 해석한다
+    sessionRef.current?.relocalize(LOCALES[next]);
+    setVersion((v) => v + 1);
+  }
+
+  function reset(session: Session, from: Source) {
     socket.current?.close();
     sessionRef.current = session;
-    setSource(label);
-    setError('');
+    setSource(from);
+    setError(null);
     setFlowId(null);
     setPacketNo(null);
     setQuery('');
@@ -68,49 +100,58 @@ export function App() {
     setVersion((v) => v + 1);
   }
 
-  function loadBytes(bytes: Uint8Array, label: string) {
-    const session = new Session();
+  function loadBytes(bytes: Uint8Array, from: Source) {
+    const session = new Session(L);
+    let failure: AppError | null = null;
     try {
       for (const raw of new CaptureReader().push(bytes)) session.add(raw);
     } catch (e) {
-      setError(e instanceof Error ? e.message : '파일을 읽지 못했습니다.');
-      if (session.packets.length === 0) return;
+      failure = { key: e instanceof CaptureError ? e.code : 'read' };
     }
-    reset(session, label);
+    if (failure && session.packets.length === 0) {
+      setError(failure);
+      return;
+    }
+    reset(session, from);
+    setError(failure);
   }
 
+  const openSample = () => loadBytes(buildWebVisitSample(L.sample.bodyLine), { kind: 'sample' });
+
   async function openFile(file: File | undefined) {
-    if (file) loadBytes(new Uint8Array(await file.arrayBuffer()), `파일: ${file.name}`);
+    if (file) loadBytes(new Uint8Array(await file.arrayBuffer()), { kind: 'file', name: file.name });
   }
 
   function startLive() {
     const target = interfaces?.find((i) => i.id === iface);
     if (!target) return;
-    const session = new Session();
+    const session = new Session(L);
     const reader = new CaptureReader();
-    reset(session, `실시간: ${target.name}`);
+    reset(session, { kind: 'live', name: target.name });
     const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/capture?iface=${target.id}`);
     ws.binaryType = 'arraybuffer';
     socket.current = ws;
     setRunning(true);
     ws.onmessage = (ev) => {
       if (typeof ev.data === 'string') {
-        setError((JSON.parse(ev.data) as { error?: string }).error ?? '');
+        const message = JSON.parse(ev.data) as { error?: string; detail?: string };
+        if (message.error === 'capture-stopped') setError({ key: 'captureStopped', detail: message.detail ?? '' });
+        else if (message.error) setError({ key: 'dumpcapMissing' });
         return;
       }
       try {
         for (const raw of reader.push(new Uint8Array(ev.data as ArrayBuffer))) session.add(raw);
       } catch {
-        setError('캡처 데이터를 해석하지 못했습니다.');
+        setError({ key: 'liveParse' });
         ws.close();
       }
       dirty.current = true;
       if (session.packets.length >= MAX_LIVE_PACKETS) {
-        setError(`패킷이 ${MAX_LIVE_PACKETS.toLocaleString()}개에 도달해 캡처를 자동으로 멈췄습니다.`);
+        setError({ key: 'liveLimit' });
         ws.close();
       }
     };
-    ws.onerror = () => setError('캡처 서버에 연결하지 못했습니다.');
+    ws.onerror = () => setError({ key: 'liveConnect' });
     ws.onclose = () => {
       if (socket.current === ws) {
         socket.current = null;
@@ -132,9 +173,9 @@ export function App() {
     const q = query.trim().toLowerCase();
     const matches = (flow: Flow) =>
       (!appFilter || flow.app === appFilter) &&
-      (!q || `${flow.app} ${flowTitle(flow, session.names)} ${flow.a.addr} ${flow.b.addr} ${flow.a.port ?? ''} ${flow.b.port ?? ''}`.toLowerCase().includes(q));
+      (!q || `${flow.app} ${flowTitle(flow, session.names, L)} ${flow.a.addr} ${flow.b.addr} ${flow.a.port ?? ''} ${flow.b.port ?? ''}`.toLowerCase().includes(q));
     return session.flows.filter(matches);
-  }, [session, version, query, appFilter]);
+  }, [session, version, query, appFilter, L]);
 
   const packets = useMemo(() => {
     if (!session) return [];
@@ -145,130 +186,133 @@ export function App() {
 
   const flow = flows.find((f) => f.id === flowId) ?? flows[0] ?? null;
   const packet = packetNo === null ? null : (session?.packets[packetNo - 1] ?? null);
-
-  const liveControls = (
-    <span className="live">
-      <select value={iface} onChange={(e) => setIface(e.target.value)} disabled={!interfaces || running} aria-label="캡처할 네트워크">
-        {interfaces ? (
-          interfaces.map((i) => (
-            <option key={i.id} value={i.id}>
-              {i.name}
-              {i.address ? ` (${i.address})` : ''}
-            </option>
-          ))
-        ) : (
-          <option>실시간 캡처 사용 불가</option>
-        )}
-      </select>
-      {running ? (
-        <button className="btn danger" onClick={() => socket.current?.close()}>
-          ■ 캡처 멈춤
-        </button>
-      ) : (
-        <button className="btn primary" onClick={startLive} disabled={!interfaces?.length} title={interfaces ? '' : '내 컴퓨터에서 npm run dev로 실행하고 Wireshark(Npcap)가 설치되어 있어야 합니다.'}>
-          ● 실시간 캡처
-        </button>
-      )}
-    </span>
-  );
+  const count = (n: number) => n.toLocaleString(L.tag);
 
   return (
-    <div
-      className="app"
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => {
-        e.preventDefault();
-        void openFile(e.dataTransfer.files[0]);
-      }}
-    >
-      <header className="topbar">
-        <h1>
-          <span aria-hidden>🐟</span> WireSalmon
-        </h1>
-        <button className="btn" onClick={() => loadBytes(SAMPLES[0].build(), `샘플: ${SAMPLES[0].title}`)}>
-          샘플 열기
-        </button>
-        <button className="btn" onClick={() => fileInput.current?.click()}>
-          파일 열기
-        </button>
-        <input ref={fileInput} type="file" accept=".pcap,.pcapng,.cap" hidden onChange={(e) => void openFile(e.target.files?.[0])} />
-        {liveControls}
-        <span className="source">
-          {running && <span className="dot" />}
-          {source}
-          {session ? ` · 패킷 ${session.packets.length.toLocaleString()}개 · 대화 ${session.flows.length.toLocaleString()}개` : ''}
-        </span>
-      </header>
-
-      {error && <div className="error">{error}</div>}
-
-      {!session ? (
-        <Welcome onSample={() => loadBytes(SAMPLES[0].build(), `샘플: ${SAMPLES[0].title}`)} liveAvailable={!!interfaces?.length} />
-      ) : (
-        <main className="panes">
-          <aside className="pane flows">
-            <div className="filters">
-              <input type="search" placeholder="이름, 주소, 포트로 찾기" value={query} onChange={(e) => setQuery(e.target.value)} />
-              <div className="chips">
-                {apps.map(([app, count]) => (
-                  <button key={app} className={`chip ${appFilter === app ? 'on' : ''}`} onClick={() => setAppFilter(appFilter === app ? null : app)}>
-                    {app} {count}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <FlowList flows={flows} names={session.names} t0={session.t0} selected={flow?.id ?? null} onSelect={(id) => (setFlowId(id), setTab('flow'))} />
-          </aside>
-
-          <section className="pane center">
-            <nav className="tabs">
-              <button className={tab === 'flow' ? 'on' : ''} onClick={() => setTab('flow')}>
-                대화 흐름
-              </button>
-              <button className={tab === 'packets' ? 'on' : ''} onClick={() => setTab('packets')}>
-                전체 패킷 ({packets.length.toLocaleString()})
-              </button>
-            </nav>
-            {tab === 'flow' ? (
-              flow ? (
-                <FlowView key={flow.id} flow={flow} names={session.names} selected={packetNo} onSelect={setPacketNo} />
+    <LocaleContext.Provider value={L}>
+      <div
+        className="app"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          void openFile(e.dataTransfer.files[0]);
+        }}
+      >
+        <header className="topbar">
+          <h1>
+            <span aria-hidden>🐟</span> WireSalmon
+          </h1>
+          <button className="btn" onClick={openSample}>
+            {L.ui.openSample}
+          </button>
+          <button className="btn" onClick={() => fileInput.current?.click()}>
+            {L.ui.openFile}
+          </button>
+          <input ref={fileInput} type="file" accept=".pcap,.pcapng,.cap" hidden onChange={(e) => void openFile(e.target.files?.[0])} />
+          <span className="live">
+            <select id="capture-interface" value={iface} onChange={(e) => setIface(e.target.value)} disabled={!interfaces || running} aria-label={L.ui.interfaceLabel}>
+              {interfaces ? (
+                interfaces.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.name}
+                    {i.address ? ` (${i.address})` : ''}
+                  </option>
+                ))
               ) : (
-                <p className="empty">{running ? '패킷을 기다리는 중입니다. 웹사이트를 하나 열어 보세요.' : '조건에 맞는 대화가 없습니다.'}</p>
-              )
+                <option>{L.ui.liveUnavailable}</option>
+              )}
+            </select>
+            {running ? (
+              <button className="btn danger" onClick={() => socket.current?.close()}>
+                {L.ui.liveStop}
+              </button>
             ) : (
-              <PacketTable packets={packets} t0={session.t0} selected={packetNo} onSelect={(p) => (setPacketNo(p.no), setFlowId(p.flowId ?? null))} />
+              <button className="btn primary" onClick={startLive} disabled={!interfaces?.length} title={interfaces ? '' : L.ui.liveHint}>
+                {L.ui.liveStart}
+              </button>
             )}
-          </section>
+          </span>
+          <span className="source">
+            {running && <span className="dot" />}
+            {source && sourceText(source, L)}
+            {session ? ` · ${L.ui.counts(count(session.packets.length), count(session.flows.length))}` : ''}
+          </span>
+          <select id="language" className="language" value={locale} onChange={(e) => changeLocale(e.target.value as Locale)} aria-label={L.ui.language}>
+            {(Object.keys(LOCALES) as Locale[]).map((code) => (
+              <option key={code} value={code}>
+                {LOCALE_NAMES[code]}
+              </option>
+            ))}
+          </select>
+        </header>
 
-          <aside className="pane detail">
-            {packet ? <PacketDetail key={packet.no} packet={packet} t0={session.t0} /> : <p className="empty">패킷을 누르면 여기에 봉투를 한 겹씩 벗겨서 보여 드립니다.</p>}
-          </aside>
-        </main>
-      )}
-    </div>
+        {error && <div className="error">{errorText(error, L)}</div>}
+
+        {!session ? (
+          <Welcome onSample={openSample} liveAvailable={!!interfaces?.length} />
+        ) : (
+          <main className="panes">
+            <aside className="pane flows">
+              <div className="filters">
+                <input id="flow-search" type="search" placeholder={L.ui.search} value={query} onChange={(e) => setQuery(e.target.value)} />
+                <div className="chips">
+                  {apps.map(([app, n]) => (
+                    <button key={app} className={`chip ${appFilter === app ? 'on' : ''}`} onClick={() => setAppFilter(appFilter === app ? null : app)}>
+                      {app} {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <FlowList flows={flows} names={session.names} t0={session.t0} selected={flow?.id ?? null} onSelect={(id) => (setFlowId(id), setTab('flow'))} />
+            </aside>
+
+            <section className="pane center">
+              <nav className="tabs">
+                <button className={tab === 'flow' ? 'on' : ''} onClick={() => setTab('flow')}>
+                  {L.ui.tabFlow}
+                </button>
+                <button className={tab === 'packets' ? 'on' : ''} onClick={() => setTab('packets')}>
+                  {L.ui.tabPackets(count(packets.length))}
+                </button>
+              </nav>
+              {tab === 'flow' ? (
+                flow ? (
+                  <FlowView key={flow.id} flow={flow} names={session.names} selected={packetNo} onSelect={setPacketNo} />
+                ) : (
+                  <p className="empty">{running ? L.ui.waiting : L.ui.noMatch}</p>
+                )
+              ) : (
+                <PacketTable packets={packets} t0={session.t0} selected={packetNo} onSelect={(p) => (setPacketNo(p.no), setFlowId(p.flowId ?? null))} />
+              )}
+            </section>
+
+            <aside className="pane detail">{packet ? <PacketDetail key={packet.no} packet={packet} t0={session.t0} /> : <p className="empty">{L.ui.pickPacket}</p>}</aside>
+          </main>
+        )}
+      </div>
+    </LocaleContext.Provider>
   );
 }
 
 function Welcome({ onSample, liveAvailable }: { onSample: () => void; liveAvailable: boolean }) {
+  const { ui } = useMessages();
   return (
     <div className="welcome">
-      <h2>패킷을 한국어로 읽어 보세요</h2>
-      <p>
-        WireSalmon은 네트워크를 오가는 패킷을 <b>누가 누구와 무슨 대화를 했는지</b>로 묶어서 보여 주는 학습용 도구입니다.
-      </p>
+      <h2>{ui.welcomeTitle}</h2>
+      <p>{ui.welcomeIntro}</p>
       <ol>
         <li>
-          <b>샘플로 시작하기</b> — 와이파이에 접속해 웹사이트를 여는 동안 일어나는 일을 순서대로 따라가 봅니다.
+          <b>{ui.step1Title}</b> — {ui.step1Body}
           <br />
           <button className="btn primary" onClick={onSample}>
-            샘플 열기
+            {ui.openSample}
           </button>
         </li>
         <li>
-          <b>캡처 파일 열기</b> — Wireshark나 tcpdump로 저장한 .pcap / .pcapng 파일을 이 창에 끌어다 놓으세요. 파일은 브라우저 안에서만 읽습니다.
+          <b>{ui.step2Title}</b> — {ui.step2Body}
         </li>
         <li>
-          <b>실시간 캡처</b> — {liveAvailable ? '위에서 네트워크(보통 Wi-Fi 또는 이더넷)를 고르고 "실시간 캡처"를 누른 뒤 웹사이트를 열어 보세요.' : '내 컴퓨터에서 npm run dev로 실행하고 Wireshark(Npcap 포함)가 설치되어 있으면 사용할 수 있습니다.'}
+          <b>{ui.step3Title}</b> — {liveAvailable ? ui.step3On : ui.step3Off}
         </li>
       </ol>
     </div>

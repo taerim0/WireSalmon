@@ -98,8 +98,8 @@ function handshake(port: number, serverIp: string, dp: number, c: number, s: num
   ];
 }
 
-/** 와이파이에 접속해서 웹사이트 두 곳을 열어 보는 상황 */
-export function buildWebVisitSample(): Uint8Array {
+/** 와이파이에 접속해서 웹사이트 두 곳을 열어 보는 상황. bodyLine은 웹 페이지 본문에 들어갈 한 문장. */
+export function buildWebVisitSample(bodyLine: string): Uint8Array {
   ipId = 1;
   const frames: [number, Uint8Array][] = [];
   const bcast = (sp: number, dp: number, src: string, payload: Bytes, srcMac = PC.mac) =>
@@ -121,7 +121,7 @@ export function buildWebVisitSample(): Uint8Array {
   frames.push([24, inn(17, DNS_IP, udp(53, 53124, dnsAnswer(0x1a2b, 'example.com', WEB_IP)), 117)]);
 
   const request = str('GET / HTTP/1.1\r\nHost: example.com\r\nUser-Agent: WireSalmon-Browser/1.0\r\nAccept: text/html\r\nConnection: close\r\n\r\n');
-  const html = '<!doctype html>\n<html><head><title>Example Domain</title></head>\n<body><h1>Example Domain</h1><p>연어가 강을 거슬러 오르듯 패킷도 길을 찾아갑니다.</p></body></html>\n';
+  const html = `<!doctype html>\n<html><head><title>Example Domain</title></head>\n<body><h1>Example Domain</h1><p>${bodyLine}</p></body></html>\n`;
   const response = str(`HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: ${str(html).length}\r\nServer: ExampleServer\r\n\r\n${html}`);
   let c = 1000;
   let s = 5000;
@@ -176,12 +176,3 @@ export function buildWebVisitSample(): Uint8Array {
 
   return toPcap(frames);
 }
-
-export const SAMPLES = [
-  {
-    id: 'web-visit',
-    title: '와이파이에 접속해서 웹사이트 열기',
-    description: 'IP 주소 받기(DHCP) → 공유기 찾기(ARP) → 이름 찾기(DNS) → 웹 요청(HTTP) → 암호화 접속(HTTPS) → 핑',
-    build: buildWebVisitSample,
-  },
-];
