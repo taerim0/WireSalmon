@@ -322,7 +322,7 @@ export function App() {
               )}
             </section>
 
-            <aside className="pane detail">{packet ? <PacketDetail key={packet.no} packet={packet} t0={session.t0} /> : <p className="empty">{L.ui.pickPacket}</p>}</aside>
+            <aside className="pane detail">{packet ? <PacketDetail packet={packet} t0={session.t0} /> : <p className="empty">{L.ui.pickPacket}</p>}</aside>
           </main>
         )}
       </div>
