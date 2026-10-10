@@ -6,14 +6,13 @@ Wireshark for humans — a learning-focused packet analyzer that groups packets 
 
 Wireshark shows you one packet per line. A beginner wants to know *what just happened*. WireSalmon reads the same captures and answers that question first.
 
-> The explanations are currently written in Korean only. English is planned.
-
 ## What it does
 
 - **Conversations, not packet lines** — packets are grouped into exchanges such as "name lookup: example.com" or "encrypted web traffic: example.com".
 - **Sequence diagram** — each conversation is drawn as arrows between the two sides. TCP is split into opening the connection, exchanging data and closing it.
 - **Plain-language explanations** — `[SYN, ACK] Seq=0 Ack=1` becomes *"② connection accepted — 'sure, I'm ready too'"*.
 - **Envelope view** — Ethernet → IP → TCP → HTTP shown as nested envelopes, with a description for every field. Hover an envelope to highlight its bytes in the hex dump.
+- **Korean and English** — switch languages from the top bar at any time, even with a capture open. The choice is remembered, and the first visit follows the browser language.
 - **Three ways in** — a built-in sample, `.pcap` / `.pcapng` files (drag and drop), or live capture.
 
 Files are parsed inside the browser. Nothing is uploaded.
@@ -33,7 +32,7 @@ npm install
 npm run dev
 ```
 
-Then open `http://localhost:5173` and click **샘플 열기** (open sample).
+Then open `http://localhost:5173` and click **Open sample**.
 
 ### Live capture
 
@@ -60,6 +59,7 @@ Tested on Windows 11. The helper also looks for `dumpcap` in the usual Linux and
 
 ```
 src/core/     capture reader (pcap, pcapng), dissectors, conversation grouping, sample generator
+src/i18n/     every sentence the app shows, one file per language
 src/ui/       React screens
 server/       live capture helper (dumpcap → WebSocket)
 test/         core tests
@@ -67,7 +67,7 @@ test/         core tests
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the commit conventions.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the commit conventions and for how to add a language.
 
 ## License
 
