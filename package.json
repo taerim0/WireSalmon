@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node test/core.test.ts"
+    "test": "node test/core.test.ts",
+    "crosscheck": "node test/crosscheck.ts"
   },
   "dependencies": {
     "react": "^19.0.0",
