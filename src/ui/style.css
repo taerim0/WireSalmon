@@ -8,6 +8,7 @@
   --accent-soft: #fdeae6;
   --ok: #1f8a4c;
   --warn: #b45309;
+  --bad: #c62828;
   --hl: #ffd9a8;
   color-scheme: light;
 }
@@ -24,6 +25,7 @@
     --accent-soft: #43262190;
     --ok: #5fd08c;
     --warn: #f0a94e;
+    --bad: #ff6b6b;
     --hl: #7a4a12;
     color-scheme: dark;
   }
@@ -39,6 +41,7 @@
   --accent-soft: #43262190;
   --ok: #5fd08c;
   --warn: #f0a94e;
+  --bad: #ff6b6b;
   --hl: #7a4a12;
   color-scheme: dark;
 }
@@ -790,4 +793,199 @@ input[type='search'] {
   padding-left: 10px;
   border-left: 3px solid var(--ok);
   color: var(--muted);
+}
+
+/* 문제 표시 */
+.chip.problem {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.chip.problem.on {
+  background: var(--warn);
+  color: var(--panel);
+}
+
+.flow-card-kind {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.problem-mark {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.problem-mark.warn {
+  color: var(--warn);
+}
+
+.problem-mark.bad {
+  color: var(--bad);
+}
+
+/* 진단과 시간 분해 */
+.insight {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+
+.insight h3 {
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.findings,
+.phases {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.finding {
+  display: flex;
+  gap: 8px;
+}
+
+.finding b,
+.finding .muted {
+  display: block;
+}
+
+.finding-icon {
+  flex: 0 0 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+  color: var(--panel);
+  background: var(--muted);
+}
+
+.finding.ok .finding-icon {
+  background: var(--ok);
+}
+
+.finding.warn .finding-icon {
+  background: var(--warn);
+}
+
+.finding.bad .finding-icon {
+  background: var(--bad);
+}
+
+.finding.bad b {
+  color: var(--bad);
+}
+
+.finding.warn b {
+  color: var(--warn);
+}
+
+.timing-bar {
+  display: flex;
+  gap: 2px;
+  height: 14px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+/* :where로 우선순위를 낮춰서 아래의 구간별 색이 이기게 한다 */
+:where(.timing-bar span, .phase-dot) {
+  background: var(--muted);
+}
+
+[data-kind='dns'],
+[data-kind='lookup'] {
+  background: #d6409f;
+}
+[data-kind='connect'],
+[data-kind='arp'] {
+  background: #c77d0a;
+}
+[data-kind='tls'] {
+  background: #5b5bd6;
+}
+[data-kind='wait'] {
+  background: var(--accent);
+}
+[data-kind='download'],
+[data-kind='exchange'] {
+  background: #2f9e5b;
+}
+[data-kind='rtt'] {
+  background: #0d9488;
+}
+[data-kind='dhcp'] {
+  background: #0b7fc2;
+}
+
+.phases li {
+  display: grid;
+  grid-template-columns: 10px minmax(110px, max-content) 70px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+}
+
+.phase-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  align-self: center;
+}
+
+.phase-ms {
+  text-align: right;
+}
+
+.slow {
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--warn);
+  color: var(--panel);
+  font-size: 11px;
+}
+
+.insight > .muted {
+  margin-top: 6px;
+}
+
+/* 첫 화면의 샘플 고르기 */
+.sample-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.sample-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sample-card:hover {
+  border-color: var(--accent);
+}
+
+@media (max-width: 700px) {
+  .phases li {
+    grid-template-columns: 10px minmax(0, 1fr) auto;
+  }
+  .phases li .muted {
+    grid-column: 2 / 4;
+  }
 }

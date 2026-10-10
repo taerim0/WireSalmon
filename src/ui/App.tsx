@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { flowTitle } from '../core/describe.ts';
+import { findings, problemOf } from '../core/diagnose.ts';
 import { CaptureError, CaptureReader } from '../core/reader.ts';
-import { buildWebVisitSample } from '../core/sample.ts';
+import { SAMPLES } from '../core/sample.ts';
 import { Session } from '../core/session.ts';
 import type { Flow } from '../core/types.ts';
 import { LOCALE_NAMES, LOCALES, type Locale, type Messages } from '../i18n/index.ts';
@@ -16,7 +17,7 @@ interface CaptureInterface {
 }
 
 /** 어디서 온 캡처인지. 언어를 바꿔도 다시 그릴 수 있게 문장이 아니라 재료로 들고 있는다. */
-type Source = { kind: 'sample' } | { kind: 'file' | 'live'; name: string };
+type Source = { kind: 'sample'; id: string } | { kind: 'file' | 'live'; name: string };
 
 type AppError = { key: 'format' | 'corrupt' | 'read' | 'liveParse' | 'liveConnect' | 'dumpcapMissing' | 'liveLimit' } | { key: 'captureStopped'; detail: string };
 
@@ -30,7 +31,7 @@ function errorText(error: AppError, L: Messages): string {
 }
 
 function sourceText(source: Source, L: Messages): string {
-  if (source.kind === 'sample') return L.ui.sourceSample(L.sample.title);
+  if (source.kind === 'sample') return L.ui.sourceSample(L.samples[source.id]?.title ?? source.id);
   return source.kind === 'file' ? L.ui.sourceFile(source.name) : L.ui.sourceLive(source.name);
 }
 
@@ -47,6 +48,7 @@ export function App() {
   const [tab, setTab] = useState<'flow' | 'packets'>('flow');
   const [query, setQuery] = useState('');
   const [appFilter, setAppFilter] = useState<string | null>(null);
+  const [problemsOnly, setProblemsOnly] = useState(false);
 
   const [interfaces, setInterfaces] = useState<CaptureInterface[] | null>(null);
   const [iface, setIface] = useState('');
@@ -97,6 +99,7 @@ export function App() {
     setPacketNo(null);
     setQuery('');
     setAppFilter(null);
+    setProblemsOnly(false);
     setVersion((v) => v + 1);
   }
 
@@ -116,7 +119,10 @@ export function App() {
     setError(failure);
   }
 
-  const openSample = () => loadBytes(buildWebVisitSample(L.sample.bodyLine), { kind: 'sample' });
+  function openSample(id: string) {
+    const sample = SAMPLES.find((s) => s.id === id);
+    if (sample) loadBytes(sample.build(L.sampleBodyLine), { kind: 'sample', id });
+  }
 
   async function openFile(file: File | undefined) {
     if (file) loadBytes(new Uint8Array(await file.arrayBuffer()), { kind: 'file', name: file.name });
@@ -168,21 +174,33 @@ export function App() {
     return [...counts].sort((a, b) => b[1] - a[1]);
   }, [session, version]);
 
+  /** 문제가 있는 대화와 그 심각도 */
+  const problems = useMemo(() => {
+    const found = new Map<number, 'bad' | 'warn'>();
+    if (!session) return found;
+    for (const flow of session.flows) {
+      const problem = problemOf(findings(flow, session.names, L, session.lastTs));
+      if (problem) found.set(flow.id, problem);
+    }
+    return found;
+  }, [session, version, L]);
+
   const flows = useMemo(() => {
     if (!session) return [];
     const q = query.trim().toLowerCase();
     const matches = (flow: Flow) =>
+      (!problemsOnly || problems.has(flow.id)) &&
       (!appFilter || flow.app === appFilter) &&
       (!q || `${flow.app} ${flowTitle(flow, session.names, L)} ${flow.a.addr} ${flow.b.addr} ${flow.a.port ?? ''} ${flow.b.port ?? ''}`.toLowerCase().includes(q));
     return session.flows.filter(matches);
-  }, [session, version, query, appFilter, L]);
+  }, [session, version, query, appFilter, problemsOnly, problems, L]);
 
   const packets = useMemo(() => {
     if (!session) return [];
-    if (!query.trim() && !appFilter) return session.packets;
+    if (!query.trim() && !appFilter && !problemsOnly) return session.packets;
     const visible = new Set(flows.map((f) => f.id));
     return session.packets.filter((p) => visible.has(p.flowId!));
-  }, [session, version, flows, query, appFilter]);
+  }, [session, version, flows, query, appFilter, problemsOnly]);
 
   const flow = flows.find((f) => f.id === flowId) ?? flows[0] ?? null;
   const packet = packetNo === null ? null : (session?.packets[packetNo - 1] ?? null);
@@ -202,9 +220,22 @@ export function App() {
           <h1>
             <span aria-hidden>🐟</span> WireSalmon
           </h1>
-          <button className="btn" onClick={openSample}>
-            {L.ui.openSample}
-          </button>
+          <select
+            id="sample-menu"
+            className="btn"
+            value=""
+            onChange={(e) => openSample(e.target.value)}
+            aria-label={L.ui.openSample}
+          >
+            <option value="" disabled>
+              {L.ui.openSample}
+            </option>
+            {SAMPLES.map((s) => (
+              <option key={s.id} value={s.id}>
+                {L.samples[s.id]?.title ?? s.id}
+              </option>
+            ))}
+          </select>
           <button className="btn" onClick={() => fileInput.current?.click()}>
             {L.ui.openFile}
           </button>
@@ -256,6 +287,11 @@ export function App() {
               <div className="filters">
                 <input id="flow-search" type="search" placeholder={L.ui.search} value={query} onChange={(e) => setQuery(e.target.value)} />
                 <div className="chips">
+                  {problems.size > 0 && (
+                    <button className={`chip problem ${problemsOnly ? 'on' : ''}`} onClick={() => setProblemsOnly(!problemsOnly)}>
+                      ⚠ {L.ui.problems(problems.size)}
+                    </button>
+                  )}
                   {apps.map(([app, n]) => (
                     <button key={app} className={`chip ${appFilter === app ? 'on' : ''}`} onClick={() => setAppFilter(appFilter === app ? null : app)}>
                       {app} {n}
@@ -263,7 +299,7 @@ export function App() {
                   ))}
                 </div>
               </div>
-              <FlowList flows={flows} names={session.names} t0={session.t0} selected={flow?.id ?? null} onSelect={(id) => (setFlowId(id), setTab('flow'))} />
+              <FlowList flows={flows} names={session.names} t0={session.t0} problems={problems} selected={flow?.id ?? null} onSelect={(id) => (setFlowId(id), setTab('flow'))} />
             </aside>
 
             <section className="pane center">
@@ -277,7 +313,7 @@ export function App() {
               </nav>
               {tab === 'flow' ? (
                 flow ? (
-                  <FlowView key={flow.id} flow={flow} names={session.names} selected={packetNo} onSelect={setPacketNo} />
+                  <FlowView key={flow.id} flow={flow} names={session.names} now={session.lastTs} selected={packetNo} onSelect={setPacketNo} />
                 ) : (
                   <p className="empty">{running ? L.ui.waiting : L.ui.noMatch}</p>
                 )
@@ -294,8 +330,9 @@ export function App() {
   );
 }
 
-function Welcome({ onSample, liveAvailable }: { onSample: () => void; liveAvailable: boolean }) {
-  const { ui } = useMessages();
+function Welcome({ onSample, liveAvailable }: { onSample: (id: string) => void; liveAvailable: boolean }) {
+  const L = useMessages();
+  const { ui } = L;
   return (
     <div className="welcome">
       <h2>{ui.welcomeTitle}</h2>
@@ -304,10 +341,14 @@ function Welcome({ onSample, liveAvailable }: { onSample: () => void; liveAvaila
       <ol>
         <li>
           <b>{ui.step1Title}</b> — {ui.step1Body}
-          <br />
-          <button className="btn primary" onClick={onSample}>
-            {ui.openSample}
-          </button>
+          <div className="sample-cards">
+            {SAMPLES.map((s) => (
+              <button key={s.id} className="sample-card" onClick={() => onSample(s.id)}>
+                <b>{L.samples[s.id]?.title ?? s.id}</b>
+                <span className="muted">{L.samples[s.id]?.description}</span>
+              </button>
+            ))}
+          </div>
         </li>
         <li>
           <b>{ui.step2Title}</b> — {ui.step2Body}

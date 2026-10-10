@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { flowStatus, flowTitle } from '../src/core/describe.ts';
+import { diagnose, problemOf } from '../src/core/diagnose.ts';
 import { CaptureReader } from '../src/core/reader.ts';
-import { buildWebVisitSample } from '../src/core/sample.ts';
+import { buildTroubleSample, buildWebVisitSample } from '../src/core/sample.ts';
 import { Session } from '../src/core/session.ts';
+import { timing } from '../src/core/timing.ts';
 import { en } from '../src/i18n/en.ts';
 import { ko } from '../src/i18n/ko.ts';
 
@@ -20,7 +22,7 @@ function print(session: Session, L = ko) {
   console.log();
 }
 
-const sample = buildWebVisitSample(en.sample.bodyLine);
+const sample = buildWebVisitSample(en.sampleBodyLine);
 const session = load(sample);
 print(session);
 
@@ -106,5 +108,65 @@ assert.deepEqual(
   switched.flows.map((f) => [f.id, f.a.label]),
   english.flows.map((f) => [f.id, f.a.label]),
 );
+
+// 진단: 잘 되는 샘플에서는 문제를 하나도 찾지 않아야 한다
+for (const f of session.flows) assert.equal(problemOf(diagnose(f, session.names, ko, session.lastTs)), null, flowTitle(f, session.names, ko));
+assert.equal(diagnose(http, session.names, ko, session.lastTs)[0].tone, 'ok');
+
+// 시간 분해: 샘플을 만들 때 넣은 간격이 그대로 나와야 한다
+const phase = (f: Session['flows'][number], kind: string) => Math.round(timing(f).phases.find((p) => p.kind === kind)?.ms ?? -1);
+assert.equal(phase(session.flows[2], 'lookup'), 24);
+assert.deepEqual([phase(http, 'dns'), phase(http, 'connect'), phase(http, 'wait')], [24, 18, 25]);
+assert.deepEqual([phase(https, 'connect'), phase(https, 'tls')], [18, 22]);
+assert.equal(phase(session.flows[6], 'rtt'), 23);
+assert.equal(timing(session.flows[6]).phases[0].count, 2);
+
+// 문제가 있는 샘플: 대화마다 기대한 진단이 나와야 한다
+const trouble = load(buildTroubleSample(), undefined, en);
+const verdicts = trouble.flows.map((f) => {
+  const list = diagnose(f, trouble.names, en, trouble.lastTs);
+  console.log(`[${f.app}] ${flowTitle(f, trouble.names, en)}`);
+  for (const finding of list) console.log(`    ${finding.tone.padEnd(4)} ${finding.title}`);
+  const t = timing(f);
+  if (t.phases.length) console.log('    time', t.phases.map((p) => `${p.kind}=${en.timing.duration(p.ms)}${p.slow ? ' (slow)' : ''}`).join(', '));
+  return [f.app, problemOf(list), list[0]?.title ?? ''] as const;
+});
+assert.deepEqual(
+  verdicts.map(([app, problem]) => [app, problem]),
+  [
+    ['DNS', 'warn'], // 없는 이름
+    ['TCP', 'bad'], // 연결 거부
+    ['TCP', 'bad'], // 응답 없음
+    ['PING', 'bad'],
+    ['ARP', 'warn'],
+    ['DNS', 'bad'], // 답 없는 DNS 서버
+    ['DNS', null],
+    ['HTTP', 'warn'], // 연결은 됐지만 서버가 느림
+    ['DNS', null],
+    ['HTTP', 'bad'], // 500
+    ['HTTP', 'warn'], // 404
+    ['TCP', 'warn'], // 재전송 뒤 강제 종료
+  ],
+);
+assert.match(verdicts[1][2], /refused \(port 8080\)/);
+assert.match(verdicts[2][2], /No answer.*3 connection requests/);
+assert.match(verdicts[7][2], /Slow: waiting for the server took 1\.85 s/);
+assert.match(verdicts[9][2], /500/);
+assert.match(verdicts[11][2], /cut the connection abruptly/);
+
+const slow = timing(trouble.flows[7]);
+assert.deepEqual(
+  slow.phases.map((p) => [p.kind, Math.round(p.ms), p.slow, p.verySlow]),
+  [
+    ['dns', 180, true, false],
+    ['connect', 18, false, false],
+    ['wait', 1850, true, true],
+  ],
+);
+assert.equal(slow.slowest?.kind, 'wait');
+
+// 방금 보낸 요청은 아직 "응답 없음"이 아니다
+const fresh = trouble.flows[2];
+assert.equal(problemOf(diagnose({ ...fresh, packets: fresh.packets.slice(0, 1) }, trouble.names, en, fresh.firstTs + 0.2)), null);
 
 console.log('all checks passed');

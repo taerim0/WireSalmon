@@ -176,3 +176,85 @@ export function buildWebVisitSample(bodyLine: string): Uint8Array {
 
   return toPcap(frames);
 }
+
+const RST = 0x04;
+
+const dnsNoSuchName = (id: number, name: string) => [...be16(id), 0x81, 0x83, 0, 1, 0, 0, 0, 0, 0, 0, ...qname(name), 0, 1, 0, 1];
+
+/** 요청 하나에 응답 하나가 오는 HTTP 대화. waitMs는 서버가 답을 시작하기까지 걸리는 시간. */
+function httpExchange(port: number, ip: string, host: string, path: string, waitMs: number, statusLine: string, body: string): [number, Uint8Array][] {
+  const request = str(`GET ${path} HTTP/1.1\r\nHost: ${host}\r\nUser-Agent: WireSalmon-Browser/1.0\r\nConnection: close\r\n\r\n`);
+  const response = str(`HTTP/1.1 ${statusLine}\r\nContent-Type: text/plain\r\nContent-Length: ${str(body).length}\r\n\r\n${body}`);
+  let c = port * 7;
+  let s = port * 13;
+  const frames = handshake(port, ip, 80, c, s);
+  c++;
+  s++;
+  frames.push([2, out(6, ip, tcp(port, 80, c, s, PSH | ACK, request))]);
+  c += request.length;
+  frames.push([18, inn(6, ip, tcp(80, port, s, c, ACK))]);
+  frames.push([Math.max(waitMs - 18, 1), inn(6, ip, tcp(80, port, s, c, PSH | ACK, response))]);
+  s += response.length;
+  frames.push([1, out(6, ip, tcp(port, 80, c, s, ACK))]);
+  frames.push([3, inn(6, ip, tcp(80, port, s, c, FIN | ACK))]);
+  frames.push([1, out(6, ip, tcp(port, 80, c, s + 1, FIN | ACK))]);
+  frames.push([18, inn(6, ip, tcp(80, port, s + 1, c + 1, ACK))]);
+  return frames;
+}
+
+/** 여러 가지가 잘 안 되는 상황을 모은 캡처: 진단과 시간 분해를 연습하기 위한 것 */
+export function buildTroubleSample(): Uint8Array {
+  ipId = 1;
+  const frames: [number, Uint8Array][] = [];
+
+  // 1. 주소 오타: 없는 이름
+  frames.push([0, out(17, DNS_IP, udp(50111, 53, dnsQuery(0x0101, 'wwww.example.com')))]);
+  frames.push([26, inn(17, DNS_IP, udp(53, 50111, dnsNoSuchName(0x0101, 'wwww.example.com')), 117)]);
+
+  // 2. 서버 프로그램이 꺼져 있음: 연결 거부
+  frames.push([300, out(6, '203.0.113.20', tcp(52001, 8080, 7000, 0, SYN))]);
+  frames.push([22, inn(6, '203.0.113.20', tcp(8080, 52001, 0, 7001, RST | ACK))]);
+
+  // 3. 방화벽이 조용히 버림: 아무 답도 없음
+  for (const gap of [400, 1000, 2000]) frames.push([gap, out(6, '198.51.100.9', tcp(52002, 22, 8000, 0, SYN))]);
+
+  // 4. 답 없는 핑
+  for (let seq = 1; seq <= 3; seq++) frames.push([seq === 1 ? 200 : 1000, out(1, '10.255.255.1', [8, 0, 0, 0, ...be16(2), ...be16(seq), ...str('abcdefghijklmnopqrstuvwabcdefghi')])]);
+
+  // 5. 같은 네트워크에 없는 장비 찾기
+  for (let i = 0; i < 3; i++) frames.push([i === 0 ? 150 : 1000, eth(BROADCAST, PC.mac, 0x0806, arp(1, PC.mac, PC.ip, '00:00:00:00:00:00', '192.168.0.77'))]);
+
+  // 6. 답하지 않는 DNS 서버
+  for (const gap of [200, 1000]) frames.push([gap, out(17, '9.9.9.9', udp(50222, 53, dnsQuery(0x0202, 'example.org')))]);
+
+  // 7. 느린 DNS와 느린 서버
+  frames.push([500, out(17, DNS_IP, udp(50333, 53, dnsQuery(0x0303, 'slow.example.com')))]);
+  frames.push([180, inn(17, DNS_IP, udp(53, 50333, dnsAnswer(0x0303, 'slow.example.com', '203.0.113.80')), 117)]);
+  frames.push(...httpExchange(52003, '203.0.113.80', 'slow.example.com', '/report', 1850, '200 OK', 'report ready\n'));
+
+  // 8. 서버 오류
+  frames.push([300, out(17, DNS_IP, udp(50444, 53, dnsQuery(0x0404, 'shop.example.com')))]);
+  frames.push([20, inn(17, DNS_IP, udp(53, 50444, dnsAnswer(0x0404, 'shop.example.com', '203.0.113.81')), 117)]);
+  frames.push(...httpExchange(52004, '203.0.113.81', 'shop.example.com', '/cart/checkout', 40, '500 Internal Server Error', 'something went wrong\n'));
+
+  // 9. 없는 페이지
+  frames.push(...httpExchange(52005, WEB_IP, 'example.com', '/old-page', 25, '404 Not Found', 'no such page\n').map(([gap, frame], i): [number, Uint8Array] => [i === 0 ? 200 : gap, frame]));
+
+  // 10. 패킷이 사라지다가 끝내 끊기는 연결
+  const lossy = '203.0.113.90';
+  frames.push(...handshake(52006, lossy, 5000, 9000, 4000).map(([gap, frame], i): [number, Uint8Array] => [i === 0 ? 300 : gap, frame]));
+  const chunk = filler(300, 9);
+  for (const gap of [5, 300, 600]) frames.push([gap, out(6, lossy, tcp(52006, 5000, 9001, 4001, PSH | ACK, chunk))]);
+  frames.push([40, inn(6, lossy, tcp(5000, 52006, 4001, 9301, ACK))]);
+  frames.push([12, inn(6, lossy, tcp(5000, 52006, 4001, 9301, PSH | ACK, filler(500, 10)))]);
+  frames.push([1, out(6, lossy, tcp(52006, 5000, 9301, 4501, ACK))]);
+  frames.push([900, inn(6, lossy, tcp(5000, 52006, 4501, 9301, RST | ACK))]);
+
+  return toPcap(frames);
+}
+
+/** 내장 샘플 목록. 제목과 설명은 언어별 사전(samples)에 같은 id로 들어 있다. */
+export const SAMPLES: { id: string; build: (bodyLine: string) => Uint8Array }[] = [
+  { id: 'web-visit', build: buildWebVisitSample },
+  { id: 'trouble', build: buildTroubleSample },
+];
