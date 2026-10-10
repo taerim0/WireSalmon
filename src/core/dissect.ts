@@ -174,6 +174,7 @@ export function createDissector(L: Messages) {
     p.flowKey = `${pairKey('l2', src, dst)}|${type}`;
     p.layers.push({
       id: 'eth',
+      brief: `${src} → ${dst}`,
       name: m.name,
       osi: m.osi,
       role: m.role,
@@ -208,6 +209,7 @@ export function createDissector(L: Messages) {
     else p.summary = m.answer(senderIp, senderMac);
     p.layers.push({
       id: 'arp',
+      brief: op === 1 ? m.request : m.reply,
       name: 'ARP',
       osi: m.osi,
       role: m.role,
@@ -242,6 +244,7 @@ export function createDissector(L: Messages) {
     p.flowKey = `${pairKey('ip', src, dst)}|${proto}`;
     p.layers.push({
       id: 'ipv4',
+      brief: `${src} → ${dst}`,
       name: 'IPv4',
       osi: m.osi,
       role: m.role4,
@@ -287,6 +290,7 @@ export function createDissector(L: Messages) {
     p.flowKey = `${pairKey('ip', src, dst)}|${next}`;
     p.layers.push({
       id: 'ipv6',
+      brief: `${src} → ${dst}`,
       name: 'IPv6',
       osi: m.osi,
       role: m.role6,
@@ -323,6 +327,7 @@ export function createDissector(L: Messages) {
     p.flowKey = pairKey(v6 ? 'icmp6' : 'icmp', p.src, p.dst);
     p.layers.push({
       id: 'icmp',
+      brief: meaning,
       name: p.proto,
       osi: m.osi,
       role: m.role,
@@ -355,6 +360,7 @@ export function createDissector(L: Messages) {
     p.summary = payload.length ? L.data.sent(payload.length) : m.control(flagNames.join(', '));
     p.layers.push({
       id: 'tcp',
+      brief: `${sp} → ${dp}${flagNames.length ? ` · ${flagNames.join('+')}` : ''}`,
       name: 'TCP',
       osi: m.osi,
       role: m.role,
@@ -388,6 +394,7 @@ export function createDissector(L: Messages) {
     p.summary = L.data.sent(Math.max(end - bodyStart, 0));
     p.layers.push({
       id: 'udp',
+      brief: `${sp} → ${dp}`,
       name: 'UDP',
       osi: m.osi,
       role: m.role,
@@ -419,6 +426,7 @@ export function createDissector(L: Messages) {
     }
     p.layers.push({
       id: 'data',
+      brief: L.packet.bytes(end - o),
       name: p.appLabel ?? m.name,
       osi: m.osi,
       role: role ?? (known && port !== undefined ? m.roleKnown(known, L.ports[port]) : m.roleUnknown),
@@ -510,7 +518,7 @@ export function createDissector(L: Messages) {
     else if (rcode === 3) p.summary = m.noSuchName(qname);
     else if (answers.length) p.summary = m.resolved(qname, answers[0], answers.length - 1);
     else p.summary = m.answered(qname, an);
-    p.layers.push({ id: 'dns', name: label, osi: m.osi, role: label === 'DNS' ? m.role : m.roleLocal, start: o, end, fields });
+    p.layers.push({ id: 'dns', brief: `${response ? m.response : m.query}${qname ? `: ${qname}` : ''}`, name: label, osi: m.osi, role: label === 'DNS' ? m.role : m.roleLocal, start: o, end, fields });
   }
 
   function dhcp(p: Packet, d: Uint8Array, o: number, end: number) {
@@ -550,6 +558,7 @@ export function createDissector(L: Messages) {
     p.summary = type === 2 || type === 5 ? `${meaning} — ${yourIp} (${name})` : `${meaning} (${name})`;
     p.layers.push({
       id: 'dhcp',
+      brief: name,
       name: 'DHCP',
       osi: m.osi,
       role: m.role,
@@ -603,7 +612,7 @@ export function createDissector(L: Messages) {
       const body = text.slice(headEnd).replace(/^\s+/, '');
       if (body) fields.push(f(m.body, body.length > 300 ? `${body.slice(0, 300)}…` : body, m.bodyHelp));
     }
-    p.layers.push({ id: 'http', name: 'HTTP', osi: m.osi, role: m.role, start: o, end, fields });
+    p.layers.push({ id: 'http', brief: text.slice(0, text.search(/\r?\n/)).slice(0, 80), name: 'HTTP', osi: m.osi, role: m.role, start: o, end, fields });
     return true;
   }
 
@@ -645,6 +654,7 @@ export function createDissector(L: Messages) {
     if (sni) p.summary += m.goingTo(sni);
     p.layers.push({
       id: 'tls',
+      brief: messages.map(([name]) => name).join(' + '),
       name: 'TLS',
       osi: m.osi,
       role: m.role,

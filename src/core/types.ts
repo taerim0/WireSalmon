@@ -10,6 +10,8 @@ export interface Field {
 export interface Layer {
   id: LayerId;
   name: string;
+  /** 접어 두었을 때 보여 줄 한 줄 요약 */
+  brief: string;
   osi: string;
   role: string;
   start: number;

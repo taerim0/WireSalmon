@@ -87,7 +87,8 @@ const hangul = /[가-힣]/;
 for (const p of english.packets) {
   assert.ok(!hangul.test(p.summary), `${p.no}: ${p.summary}`);
   for (const layer of p.layers) {
-    assert.ok(!hangul.test(layer.name + layer.osi + layer.role), `${p.no}: ${layer.name}`);
+    assert.ok(!hangul.test(layer.name + layer.brief + layer.osi + layer.role), `${p.no}: ${layer.name}`);
+    assert.ok(layer.brief, `${p.no}: ${layer.name} has no brief`);
     for (const field of layer.fields) assert.ok(!hangul.test(field.label + field.value + (field.help ?? '')), `${p.no}: ${field.label}`);
   }
 }
