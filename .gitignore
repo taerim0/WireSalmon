@@ -1,0 +1,20 @@
+# dependencies / build output
+node_modules/
+dist/
+
+# captures can contain passwords, cookies and internal addresses — never commit them
+*.pcap
+*.pcapng
+*.cap
+
+# local environment
+.env
+.env.*
+*.log
+
+# editor / OS / tooling
+.vscode/
+.idea/
+.claude/
+.DS_Store
+Thumbs.db
