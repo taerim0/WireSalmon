@@ -16,6 +16,8 @@ const CONTENT_SECURITY_POLICY = [
 ].join('; ');
 
 export default defineConfig({
+  // 상대 경로로 빌드해서 GitHub Pages 같은 하위 경로에 올려도 그대로 동작하게 한다
+  base: './',
   plugins: [
     react(),
     {
