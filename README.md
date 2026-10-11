@@ -15,6 +15,7 @@ Wireshark shows you one packet per line. A beginner wants to know *what just hap
 - **Plain-language explanations** — `[SYN, ACK] Seq=0 Ack=1` becomes *"② connection accepted — 'sure, I'm ready too'"*.
 - **Diagnosis** — each conversation says what went wrong and the usual causes: connection refused, no answer, an abrupt reset, resent data, a name that does not exist, a DNS server that stays silent, HTTP errors, unanswered pings. Conversations with problems are marked in the list and can be filtered.
 - **Where the time went** — a conversation is split into name lookup, connecting, encryption hello, waiting for the server and receiving the response, with the slow part pointed out.
+- **HTTP messages** — for unencrypted HTTP, pieces that arrived in separate packets are joined into whole requests and responses, with links back to the packets that carried the headers and the body. Handles out-of-order and resent pieces, Content-Length and chunked bodies, and says so when a body is incomplete. Compressed bodies are not decoded.
 - **Envelope view** — Ethernet → IP → TCP → HTTP shown as nested envelopes, with a description for every field. Hover an envelope to highlight its bytes in the hex dump.
 - **Korean and English** — switch languages from the top bar at any time, even with a capture open. The choice is remembered, and the first visit follows the browser language.
 - **Three ways in** — built-in samples (one where everything works, one where things go wrong), `.pcap` / `.pcapng` files (drag and drop), or live capture.
@@ -75,7 +76,7 @@ Limits worth knowing:
 ## Project layout
 
 ```
-src/core/     capture reader (pcap, pcapng), dissectors, conversation grouping, diagnosis, timing, sample generator
+src/core/     capture reader (pcap, pcapng), dissectors, conversation grouping, diagnosis, timing, HTTP message joining, sample generator
 src/i18n/     every sentence the app shows, one file per language
 src/ui/       React screens
 server/       live capture helper (dumpcap → WebSocket)
