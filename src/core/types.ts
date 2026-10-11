@@ -23,7 +23,10 @@ export interface TcpInfo {
   seq: number;
   ack: number;
   flags: number;
+  /** 실제로 전송된 데이터 길이. 캡처가 패킷 앞부분만 저장했더라도 원래 길이다. */
   payloadLen: number;
+  /** 그중 캡처 파일에 들어 있는 길이 */
+  captured: number;
   /** 패킷 안에서 데이터가 시작하는 위치 */
   payloadStart: number;
 }
@@ -81,6 +84,8 @@ export interface Endpoint {
 
 export interface TcpState {
   syn: boolean;
+  /** 연결 요청을 보낸 쪽이 a인지 */
+  synFromA?: boolean;
   synAck: boolean;
   established: boolean;
   fin: { a: boolean; b: boolean };

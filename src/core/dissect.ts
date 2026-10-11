@@ -1,6 +1,7 @@
 import type { Messages } from '../i18n/index.ts';
 import { hex, ipv4, ipv6, mac, printable, u16, u32, utf8 } from './bytes.ts';
 import type { RawPacket } from './reader.ts';
+import { headerLines, REQUEST_LINE, STATUS_LINE } from './httpline.ts';
 import type { Field, Packet, PacketInfo } from './types.ts';
 
 const f = (label: string, value: string | number, help?: string): Field => ({ label, value: String(value), help });
@@ -53,8 +54,6 @@ const TCP_FLAGS: [number, string][] = [
 ];
 const DNS_TYPES: Record<number, string> = { 1: 'A', 2: 'NS', 5: 'CNAME', 6: 'SOA', 12: 'PTR', 15: 'MX', 16: 'TXT', 28: 'AAAA', 33: 'SRV', 65: 'HTTPS', 255: 'ANY' };
 const DHCP_TYPES: Record<number, string> = { 1: 'Discover', 2: 'Offer', 3: 'Request', 4: 'Decline', 5: 'ACK', 6: 'NAK', 7: 'Release', 8: 'Inform' };
-const HTTP_REQ = /^(GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH|CONNECT|TRACE) (\S+) HTTP\/1\.[01]\r?\n/;
-const HTTP_RES = /^HTTP\/1\.[01] (\d{3}) ?([^\r\n]*)\r?\n/;
 const TLS_HANDSHAKE: Record<number, string> = {
   1: 'Client Hello',
   2: 'Server Hello',
@@ -265,7 +264,8 @@ export function createDissector(L: Messages) {
       p.summary = m.laterFragment;
       return;
     }
-    transport(p, d, o + ihl, end, proto);
+    // 캡처가 패킷 앞부분만 저장했을 때를 위해, 헤더가 알려 주는 원래 끝 위치도 넘긴다
+    transport(p, d, o + ihl, end, proto, total ? o + total : p.origLen);
   }
 
   function ip6(p: Packet, d: Uint8Array, o: number) {
@@ -311,11 +311,11 @@ export function createDissector(L: Messages) {
       p.summary = m.laterFragment;
       return;
     }
-    transport(p, d, off, end, next);
+    transport(p, d, off, end, next, payloadLen ? o + 40 + payloadLen : p.origLen);
   }
 
-  function transport(p: Packet, d: Uint8Array, o: number, end: number, proto: number) {
-    if (proto === 6) tcp(p, d, o, end);
+  function transport(p: Packet, d: Uint8Array, o: number, end: number, proto: number, wireEnd: number) {
+    if (proto === 6) tcp(p, d, o, end, wireEnd);
     else if (proto === 17) udp(p, d, o, end);
     else if (proto === 1) icmp(p, d, o, end, false);
     else if (proto === 58) icmp(p, d, o, end, true);
@@ -348,23 +348,25 @@ export function createDissector(L: Messages) {
     });
   }
 
-  function tcp(p: Packet, d: Uint8Array, o: number, end: number) {
+  function tcp(p: Packet, d: Uint8Array, o: number, end: number, wireEnd: number) {
     const m = L.tcp;
     need(d, o, 20);
     const sp = u16(d, o);
     const dp = u16(d, o + 2);
     const seq = u32(d, o + 4);
     const ack = u32(d, o + 8);
-    const headerEnd = Math.min(o + Math.max((d[o + 12] >> 4) * 4, 20), end);
+    const headerLen = Math.max((d[o + 12] >> 4) * 4, 20);
+    const headerEnd = Math.min(o + headerLen, end);
     const flags = d[o + 13];
     const payload = d.subarray(headerEnd, end);
+    const sentLen = Math.max(wireEnd - (o + headerLen), payload.length);
     const flagNames = TCP_FLAGS.filter(([bit]) => flags & bit).map(([, name]) => name);
     p.srcPort = sp;
     p.dstPort = dp;
     p.proto = 'TCP';
-    p.tcp = { seq, ack, flags, payloadLen: payload.length, payloadStart: headerEnd };
+    p.tcp = { seq, ack, flags, payloadLen: sentLen, captured: payload.length, payloadStart: headerEnd };
     p.flowKey = pairKey('tcp', `${p.src}#${sp}`, `${p.dst}#${dp}`);
-    p.summary = payload.length ? L.data.sent(payload.length) : m.control(flagNames.join(', '));
+    p.summary = sentLen ? L.data.sent(sentLen) : m.control(flagNames.join(', '));
     p.layers.push({
       id: 'tcp',
       brief: `${sp} → ${dp}${flagNames.length ? ` · ${flagNames.join('+')}` : ''}`,
@@ -380,7 +382,7 @@ export function createDissector(L: Messages) {
         f(m.seq, seq, m.seqHelp),
         f(m.ack, flags & 0x10 ? ack : L.packet.none, m.ackHelp),
         f(m.window, u16(d, o + 14), m.windowHelp),
-        f(m.payload, L.packet.bytes(payload.length)),
+        f(m.payload, L.packet.bytes(sentLen)),
       ],
     });
     if (payload.length === 0) return;
@@ -593,16 +595,14 @@ export function createDissector(L: Messages) {
     // 첫 글자가 대문자 알파벳이 아니면 HTTP일 수 없다
     if (d[o] < 65 || d[o] > 90) return false;
     const text = utf8(d.subarray(o, Math.min(end, o + 8192)));
-    const req = HTTP_REQ.exec(text);
-    const res = req ? null : HTTP_RES.exec(text);
+    const lineEnd = text.search(/\r?\n/);
+    if (lineEnd < 0) return false;
+    const startLine = text.slice(0, lineEnd);
+    const req = REQUEST_LINE.exec(startLine);
+    const res = req ? null : STATUS_LINE.exec(startLine);
     if (!req && !res) return false;
     const headEnd = text.search(/\r?\n\r?\n/);
-    const lines = (headEnd < 0 ? text : text.slice(0, headEnd)).split(/\r?\n/).slice(1);
-    const headers: [string, string][] = [];
-    for (const line of lines) {
-      const i = line.indexOf(':');
-      if (i > 0) headers.push([line.slice(0, i).trim(), line.slice(i + 1).trim()]);
-    }
+    const headers = headerLines((headEnd < 0 ? text : text.slice(0, headEnd)).split(/\r?\n/).slice(1));
     const fields: Field[] = [];
     p.proto = 'HTTP';
     p.appLabel = 'HTTP';
@@ -626,7 +626,7 @@ export function createDissector(L: Messages) {
       const body = text.slice(headEnd).replace(/^\s+/, '');
       if (body) fields.push(f(m.body, body.length > 300 ? `${body.slice(0, 300)}…` : body, m.bodyHelp));
     }
-    p.layers.push({ id: 'http', brief: text.slice(0, text.search(/\r?\n/)).slice(0, 80), name: 'HTTP', osi: m.osi, role: m.role, start: o, end, fields });
+    p.layers.push({ id: 'http', brief: startLine.slice(0, 80), name: 'HTTP', osi: m.osi, role: m.role, start: o, end, fields });
     return true;
   }
 

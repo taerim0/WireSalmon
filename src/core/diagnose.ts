@@ -60,10 +60,11 @@ export function diagnose(flow: Flow, names: Map<string, string>, L: Messages, no
 
   if (flow.tcp) {
     const s = flow.tcp;
-    const syns = packets.filter((p) => p.fromA && p.tcp && (p.tcp.flags & (SYN | ACK)) === SYN);
+    // 연결 요청은 대개 a가 보내지만, 캡처가 중간부터 시작되면 b가 보낸 것만 있을 수도 있다
+    const syns = packets.filter((p) => p.tcp && (p.tcp.flags & (SYN | ACK)) === SYN);
     const rstAt = packets.findIndex((p) => p.tcp && p.tcp.flags & RST);
-    if (s.syn && !s.synAck) {
-      if (rstAt >= 0 && !packets[rstAt].fromA) add('bad', m.refused(flow.b.port ?? 0));
+    if (s.syn && !s.synAck && syns.length) {
+      if (rstAt >= 0 && packets[rstAt].fromA !== syns[0].fromA) add('bad', m.refused(packets[rstAt].srcPort ?? 0));
       else if (syns.length > 1 || now - syns[0].ts > WAIT_TCP) add('bad', m.noAnswer(syns.length));
       else add('info', m.connecting);
     } else if (rstAt >= 0) {
