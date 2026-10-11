@@ -79,13 +79,17 @@ export function diagnose(flow: Flow, names: Map<string, string>, L: Messages, no
     const alert = packets.find((p) => p.info?.tlsAlert?.fatal)?.info?.tlsAlert;
     if (alert) add('bad', m.tlsFailed(m.tlsAlerts[alert.code] ?? String(alert.code)));
 
+    // 오류 응답은 연결 실패와 다르다: 연결도 요청도 됐고, 서버가 답으로 오류를 돌려준 것이다
     const seen = new Set<number>();
+    let path = '';
     for (const p of packets) {
+      if (p.info?.http?.path) path = p.info.http.path;
       const status = p.info?.http?.status;
       if (status === undefined || status < 400 || seen.has(status) || seen.size >= 3) continue;
       seen.add(status);
       const meaning = L.http.status[String(status)] ?? p.info?.http?.reason ?? '';
-      add(status >= 500 ? 'bad' : 'warn', status >= 500 ? m.httpServerError(status, meaning) : m.httpClientError(status, meaning));
+      const cause = status === 404 ? m.http404(path || '?') : (m.httpCauses[status] ?? (status >= 500 ? m.http5xx : m.http4xx));
+      add(status >= 500 ? 'bad' : 'warn', [m.httpError(status, meaning), `${m.httpReached} ${cause}`]);
     }
     if (flow.app === 'DNS') dnsFindings();
     addSlow();

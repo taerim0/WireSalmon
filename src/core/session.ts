@@ -160,7 +160,8 @@ export class Session {
     if (t.flags & RST) {
       s.rst = true;
       p.stage = 'close';
-      p.summary = m.rst;
+      // 연결 요청에 대한 답으로 온 RST는 끊은 것이 아니라 처음부터 받지 않은 것이다
+      p.summary = s.syn && !s.synAck && !p.fromA ? m.rstRefused : m.rst;
     } else if (t.flags & SYN) {
       p.stage = 'open';
       if (t.flags & ACK) {
