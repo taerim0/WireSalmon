@@ -1,4 +1,4 @@
-import { utf8 } from '../core/bytes.ts';
+import { Fragment } from 'react';
 import { httpConversation, type HttpMessage } from '../core/stream.ts';
 import type { Flow } from '../core/types.ts';
 import type { Messages } from '../i18n/index.ts';
@@ -15,11 +15,22 @@ function isText(msg: HttpMessage): boolean {
   return head.length > 0 && readable / head.length > 0.95;
 }
 
+/** 본문을 글자로 바꾼다. 서버가 밝힌 문자 집합(예: euc-kr)을 따르고, 모르는 것이면 UTF-8로 읽는다. */
+function decodeBody(msg: HttpMessage, bytes: Uint8Array): string {
+  const charset = /charset=["']?([\w-]+)/i.exec(msg.contentType ?? '')?.[1];
+  try {
+    return new TextDecoder(charset ?? 'utf-8').decode(bytes);
+  } catch {
+    return new TextDecoder().decode(bytes);
+  }
+}
+
 /** 본문이 온전한지, 어떻게 끝을 알렸는지 */
-function stateNote(msg: HttpMessage, gap: boolean, m: Messages['msg']): { text: string; warn: boolean } | null {
+function stateNote(msg: HttpMessage, m: Messages['msg']): { text: string; warn: boolean } | null {
   if (msg.state === 'cut') {
     if (msg.declared === undefined) return { text: m.chunkedCut, warn: true };
-    return { text: (gap ? m.cutGap : m.cutEnd)(msg.body.length, msg.declared), warn: true };
+    const say = { gap: m.cutGap, short: m.cutShort, limit: m.cutLimit, end: m.cutEnd }[msg.cutBy ?? 'end'];
+    return { text: say(msg.body.length, msg.declared), warn: true };
   }
   if (msg.state === 'until-close') return { text: m.untilClose, warn: false };
   if (msg.chunked) return { text: m.chunked, warn: false };
@@ -51,13 +62,13 @@ export function HttpMessages(props: { flow: Flow; selected: number | null; onSel
 
   const message = (msg: HttpMessage | undefined, missing: string) => {
     if (!msg) return <p className="msg-missing muted">{missing}</p>;
-    const note = stateNote(msg, gap, m);
+    const note = stateNote(msg, m);
     const encoded = msg.encoding && !/^identity$/i.test(msg.encoding);
-    const text = !encoded && msg.body.length > 0 && isText(msg) ? utf8(msg.body.subarray(0, TEXT_LIMIT)) : null;
+    const text = !encoded && msg.body.length > 0 && isText(msg) ? decodeBody(msg, msg.body.subarray(0, TEXT_LIMIT)) : null;
     return (
       <article className={`msg ${msg.kind}`}>
         <header>
-          <span className="msg-kind">{msg.kind === 'request' ? m.request : m.response}</span>
+          <span className="msg-kind">{msg.kind === 'request' ? m.request : msg.status !== undefined && msg.status < 200 ? m.interim : m.response}</span>
           <code className="msg-start">{msg.startLine}</code>
         </header>
         <div className="msg-part">
@@ -94,6 +105,9 @@ export function HttpMessages(props: { flow: Flow; selected: number | null; onSel
       {exchanges.map((exchange, i) => (
         <section key={i} className="exchange">
           {message(exchange.request, m.noRequest)}
+          {exchange.interim.map((msg, j) => (
+            <Fragment key={j}>{message(msg, '')}</Fragment>
+          ))}
           {message(exchange.response, m.noResponse)}
         </section>
       ))}

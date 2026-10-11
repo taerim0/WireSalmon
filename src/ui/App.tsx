@@ -305,7 +305,6 @@ export function App() {
                 </div>
               </div>
               <FlowList flows={flows} names={session.names} t0={session.t0} problems={problems} selected={flow?.id ?? null} onSelect={(id) => {
-                  if (id !== flow?.id) setPacketNo(null);
                   setFlowId(id);
                   if (tab === 'packets') setTab('flow');
                 }}
@@ -335,7 +334,7 @@ export function App() {
                   <p className="empty">{running ? L.ui.waiting : L.ui.noMatch}</p>
                 )
               ) : (
-                <PacketTable packets={packets} t0={session.t0} selected={packetNo} onSelect={(p) => (setPacketNo(p.no), setFlowId(p.flowId ?? null))} />
+                <PacketTable packets={packets} t0={session.t0} selected={packet?.no ?? null} onSelect={(p) => (setPacketNo(p.no), setFlowId(p.flowId ?? null))} />
               )}
             </section>
 
