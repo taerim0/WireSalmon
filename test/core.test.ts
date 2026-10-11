@@ -4,6 +4,7 @@ import { diagnose, problemOf } from '../src/core/diagnose.ts';
 import { CaptureReader } from '../src/core/reader.ts';
 import { buildTroubleSample, buildWebVisitSample } from '../src/core/sample.ts';
 import { Session } from '../src/core/session.ts';
+import { httpConversation, parseHttp, reassemble } from '../src/core/stream.ts';
 import { timing } from '../src/core/timing.ts';
 import { en } from '../src/i18n/en.ts';
 import { ko } from '../src/i18n/ko.ts';
@@ -26,7 +27,7 @@ const sample = buildWebVisitSample(en.sampleBodyLine);
 const session = load(sample);
 print(session);
 
-assert.equal(session.packets.length, 41);
+assert.equal(session.packets.length, 42);
 assert.ok(session.packets.every((p) => !p.truncated));
 assert.deepEqual(
   session.flows.map((f) => f.app),
@@ -100,7 +101,7 @@ for (const f of english.flows) {
 // 열어 둔 캡처의 언어를 바꾸면 처음부터 그 언어로 연 것과 같아야 한다
 const switched = load(sample);
 switched.relocalize(en);
-assert.equal(switched.packets.length, 41);
+assert.equal(switched.packets.length, 42);
 assert.deepEqual(
   switched.packets.map((p) => p.summary),
   english.packets.map((p) => p.summary),
@@ -169,5 +170,44 @@ assert.equal(slow.slowest?.kind, 'wait');
 // 방금 보낸 요청은 아직 "응답 없음"이 아니다
 const fresh = trouble.flows[2];
 assert.equal(problemOf(diagnose({ ...fresh, packets: fresh.packets.slice(0, 1) }, trouble.names, en, fresh.firstTs + 0.2)), null);
+
+// HTTP 메시지 이어 읽기: 헤더와 본문이 다른 패킷에 와도 하나의 응답으로 읽는다
+const text = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+const bytesOf = (s: string) => new TextEncoder().encode(s);
+const talk = httpConversation(http);
+assert.equal(talk.exchanges.length, 1);
+assert.equal(talk.exchanges[0].request?.startLine, 'GET / HTTP/1.1');
+const reply = talk.exchanges[0].response!;
+assert.deepEqual([reply.status, reply.state, reply.declared, reply.body.length], [200, 'complete', 170, 170]);
+assert.deepEqual([reply.headerPackets, reply.bodyPackets], [[14], [15]]);
+assert.match(text(reply.body), /^<!doctype html>[\s\S]*<\/html>\n$/);
+const notFound = httpConversation(trouble.flows[10]).exchanges[0];
+assert.deepEqual([notFound.request?.path, notFound.response?.status, text(notFound.response!.body)], ['/old-page', 404, 'no such page\n']);
+assert.equal(httpConversation(trouble.flows[1]).exchanges.length, 0);
+
+// 순서가 바뀐 조각은 제자리에 넣고, 다시 온 조각은 버린다
+const whole = bytesOf('HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\n0123456789');
+const piece = (from: number, to: number, no: number) => ({ offset: 1 + from, data: whole.subarray(from, to), no });
+const shuffled = reassemble([piece(30, 49, 3), piece(0, 20, 1), piece(10, 30, 2), piece(0, 20, 4)], 1);
+assert.equal(text(shuffled.data), text(whole));
+assert.deepEqual([shuffled.gap, shuffled.pieces.map((p) => p.no)], [false, [1, 2, 3]]);
+const joined = parseHttp(shuffled, 'response')[0];
+assert.deepEqual([joined.state, text(joined.body), joined.headerPackets, joined.bodyPackets], ['complete', '0123456789', [1, 2, 3], [3]]);
+
+// 중간 조각이 없으면 그 앞까지만 잇고 불완전하다고 알린다
+const holed = reassemble([piece(0, 42, 1), piece(46, 49, 3)], 1);
+assert.equal(holed.gap, true);
+const partial = parseHttp(holed, 'response')[0];
+assert.deepEqual([partial.state, text(partial.body), partial.declared], ['cut', '012', 10]);
+
+// 조각(chunked) 전송과 이어지는 두 번째 메시지
+const chunkedStream = reassemble([{ offset: 0, no: 1, data: bytesOf('HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWire\r\n6\r\nSalmon\r\n0\r\n\r\nHTTP/1.1 304 Not Modified\r\n\r\n') }], 0);
+const [first, second] = parseHttp(chunkedStream, 'response');
+assert.deepEqual([first.state, first.chunked, text(first.body)], ['complete', true, 'WireSalmon']);
+assert.deepEqual([second.status, second.body.length], [304, 0]);
+
+// 길이를 알리지 않은 응답은 끝까지를 본문으로 본다
+const open = parseHttp(reassemble([{ offset: 0, no: 1, data: bytesOf('HTTP/1.0 200 OK\r\n\r\nabc') }], 0), 'response')[0];
+assert.deepEqual([open.state, text(open.body)], ['until-close', 'abc']);
 
 console.log('all checks passed');

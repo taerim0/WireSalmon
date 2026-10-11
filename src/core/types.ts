@@ -24,6 +24,8 @@ export interface TcpInfo {
   ack: number;
   flags: number;
   payloadLen: number;
+  /** 패킷 안에서 데이터가 시작하는 위치 */
+  payloadStart: number;
 }
 
 export type Stage = 'open' | 'data' | 'close';
@@ -31,7 +33,7 @@ export type Stage = 'open' | 'data' | 'close';
 /** 진단과 시간 분해에 쓰는, 언어와 무관한 패킷 정보 */
 export interface PacketInfo {
   dns?: { response: boolean; rcode: number; answers: number };
-  http?: { method?: string; status?: number; reason?: string };
+  http?: { method?: string; path?: string; status?: number; reason?: string };
   tlsHello?: 'client' | 'server';
   tlsAlert?: { fatal: boolean; code: number };
   icmp?: { type: number; code: number; v6: boolean; echo?: 'request' | 'reply'; seq?: number };

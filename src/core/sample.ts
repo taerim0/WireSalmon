@@ -122,7 +122,9 @@ export function buildWebVisitSample(bodyLine: string): Uint8Array {
 
   const request = str('GET / HTTP/1.1\r\nHost: example.com\r\nUser-Agent: WireSalmon-Browser/1.0\r\nAccept: text/html\r\nConnection: close\r\n\r\n');
   const html = `<!doctype html>\n<html><head><title>Example Domain</title></head>\n<body><h1>Example Domain</h1><p>${bodyLine}</p></body></html>\n`;
-  const response = str(`HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: ${str(html).length}\r\nServer: ExampleServer\r\n\r\n${html}`);
+  // 실제 서버가 흔히 그러듯 응답의 헤더와 본문을 서로 다른 패킷에 나눠 보낸다
+  const responseHead = str(`HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: ${str(html).length}\r\nServer: ExampleServer\r\n\r\n`);
+  const responseBody = str(html);
   let c = 1000;
   let s = 5000;
   frames.push(...handshake(51000, WEB_IP, 80, c, s));
@@ -131,8 +133,10 @@ export function buildWebVisitSample(bodyLine: string): Uint8Array {
   frames.push([2, out(6, WEB_IP, tcp(51000, 80, c, s, PSH | ACK, request))]);
   c += request.length;
   frames.push([19, inn(6, WEB_IP, tcp(80, 51000, s, c, ACK))]);
-  frames.push([6, inn(6, WEB_IP, tcp(80, 51000, s, c, PSH | ACK, response))]);
-  s += response.length;
+  frames.push([6, inn(6, WEB_IP, tcp(80, 51000, s, c, ACK, responseHead))]);
+  s += responseHead.length;
+  frames.push([1, inn(6, WEB_IP, tcp(80, 51000, s, c, PSH | ACK, responseBody))]);
+  s += responseBody.length;
   frames.push([1, out(6, WEB_IP, tcp(51000, 80, c, s, ACK))]);
   frames.push([4, inn(6, WEB_IP, tcp(80, 51000, s, c, FIN | ACK))]);
   frames.push([1, out(6, WEB_IP, tcp(51000, 80, c, s + 1, FIN | ACK))]);

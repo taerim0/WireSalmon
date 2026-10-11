@@ -362,7 +362,7 @@ export function createDissector(L: Messages) {
     p.srcPort = sp;
     p.dstPort = dp;
     p.proto = 'TCP';
-    p.tcp = { seq, ack, flags, payloadLen: payload.length };
+    p.tcp = { seq, ack, flags, payloadLen: payload.length, payloadStart: headerEnd };
     p.flowKey = pairKey('tcp', `${p.src}#${sp}`, `${p.dst}#${dp}`);
     p.summary = payload.length ? L.data.sent(payload.length) : m.control(flagNames.join(', '));
     p.layers.push({
@@ -610,7 +610,7 @@ export function createDissector(L: Messages) {
       const [, method, path] = req;
       const what = m.methods[method] ?? method;
       p.host = headers.find(([k]) => k.toLowerCase() === 'host')?.[1];
-      p.info = { http: { method } };
+      p.info = { http: { method, path } };
       p.summary = m.request(method, path.length > 60 ? `${path.slice(0, 60)}…` : path, what, path === '/');
       fields.push(f(m.method, `${method} — ${what}`, m.methodHelp));
       fields.push(f(m.path, path, m.pathHelp));
