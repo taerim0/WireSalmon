@@ -203,7 +203,9 @@ export function App() {
   }, [session, version, flows, query, appFilter, problemsOnly]);
 
   const flow = flows.find((f) => f.id === flowId) ?? flows[0] ?? null;
-  const packet = packetNo === null ? null : (session?.packets[packetNo - 1] ?? null);
+  // 상세에는 지금 보고 있는 대화의 패킷만 보여 준다. 대화나 필터를 바꾸면 이전 대화의 패킷이 남아 헷갈리기 때문이다.
+  const picked = packetNo === null ? null : (session?.packets[packetNo - 1] ?? null);
+  const packet = picked && picked.flowId === flow?.id ? picked : null;
   const count = (n: number) => n.toLocaleString(L.tag);
 
   return (
@@ -299,7 +301,12 @@ export function App() {
                   ))}
                 </div>
               </div>
-              <FlowList flows={flows} names={session.names} t0={session.t0} problems={problems} selected={flow?.id ?? null} onSelect={(id) => (setFlowId(id), setTab('flow'))} />
+              <FlowList flows={flows} names={session.names} t0={session.t0} problems={problems} selected={flow?.id ?? null} onSelect={(id) => {
+                  if (id !== flow?.id) setPacketNo(null);
+                  setFlowId(id);
+                  if (tab === 'packets') setTab('flow');
+                }}
+              />
             </aside>
 
             <section className="pane center">
@@ -313,7 +320,7 @@ export function App() {
               </nav>
               {tab === 'flow' ? (
                 flow ? (
-                  <FlowView key={flow.id} flow={flow} names={session.names} now={session.lastTs} selected={packetNo} onSelect={setPacketNo} />
+                  <FlowView key={flow.id} flow={flow} names={session.names} now={session.lastTs} selected={packet?.no ?? null} onSelect={setPacketNo} />
                 ) : (
                   <p className="empty">{running ? L.ui.waiting : L.ui.noMatch}</p>
                 )
