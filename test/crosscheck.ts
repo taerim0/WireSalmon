@@ -101,6 +101,7 @@ for (let i = 0; i < Math.min(session.packets.length, theirs.length); i++) {
     const me = p.fromA ? 'a' : 'b';
     if (flow.tcp!.syn && flow.tcp!.synAck) {
       const rel = (p.tcp.seq - flow.tcp!.isn[me]!) >>> 0;
+      check('tcp captured length', true, p.tcp.captured <= p.tcp.payloadLen, ex(p.tcp.captured, p.tcp.payloadLen));
       check('tcp relative seq', true, String(rel) === first(t['tcp.seq']), ex(rel, t['tcp.seq']));
     }
 

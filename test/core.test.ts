@@ -4,7 +4,8 @@ import { diagnose, problemOf } from '../src/core/diagnose.ts';
 import { CaptureReader } from '../src/core/reader.ts';
 import { buildTroubleSample, buildWebVisitSample } from '../src/core/sample.ts';
 import { Session } from '../src/core/session.ts';
-import { httpConversation, parseHttp, reassemble } from '../src/core/stream.ts';
+import { httpConversation, pairExchanges, parseHttp, reassemble } from '../src/core/stream.ts';
+import type { Flow } from '../src/core/types.ts';
 import { timing } from '../src/core/timing.ts';
 import { en } from '../src/i18n/en.ts';
 import { ko } from '../src/i18n/ko.ts';
@@ -190,13 +191,13 @@ const whole = bytesOf('HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\n0123456789')
 const piece = (from: number, to: number, no: number) => ({ offset: 1 + from, data: whole.subarray(from, to), no });
 const shuffled = reassemble([piece(30, 49, 3), piece(0, 20, 1), piece(10, 30, 2), piece(0, 20, 4)], 1);
 assert.equal(text(shuffled.data), text(whole));
-assert.deepEqual([shuffled.gap, shuffled.pieces.map((p) => p.no)], [false, [1, 2, 3]]);
+assert.deepEqual([shuffled.stopped, shuffled.pieces.map((p) => p.no)], [undefined, [1, 2, 3]]);
 const joined = parseHttp(shuffled, 'response')[0];
 assert.deepEqual([joined.state, text(joined.body), joined.headerPackets, joined.bodyPackets], ['complete', '0123456789', [1, 2, 3], [3]]);
 
 // 중간 조각이 없으면 그 앞까지만 잇고 불완전하다고 알린다
 const holed = reassemble([piece(0, 42, 1), piece(46, 49, 3)], 1);
-assert.equal(holed.gap, true);
+assert.equal(holed.stopped, 'gap');
 const partial = parseHttp(holed, 'response')[0];
 assert.deepEqual([partial.state, text(partial.body), partial.declared], ['cut', '012', 10]);
 
@@ -209,5 +210,37 @@ assert.deepEqual([second.status, second.body.length], [304, 0]);
 // 길이를 알리지 않은 응답은 끝까지를 본문으로 본다
 const open = parseHttp(reassemble([{ offset: 0, no: 1, data: bytesOf('HTTP/1.0 200 OK\r\n\r\nabc') }], 0), 'response')[0];
 assert.deepEqual([open.state, text(open.body)], ['until-close', 'abc']);
+
+// HEAD에 대한 응답은 길이를 알려도 본문이 없다: 다음 응답을 본문으로 삼키면 안 된다
+const twoReplies = reassemble([{ offset: 0, no: 1, data: bytesOf('HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello') }], 0);
+const afterHead = parseHttp(twoReplies, 'response', ['HEAD', 'GET']);
+assert.deepEqual(afterHead.map((r) => text(r.body)), ['', 'hello']);
+
+// 100 Continue 같은 중간 응답은 같은 요청에 붙고, 짝을 밀어내지 않는다
+const withInterim = parseHttp(reassemble([{ offset: 0, no: 1, data: bytesOf('HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok') }], 0), 'response', ['POST', 'GET']);
+const asked = parseHttp(reassemble([{ offset: 0, no: 1, data: bytesOf('POST /a HTTP/1.1\r\nContent-Length: 0\r\n\r\nGET /b HTTP/1.1\r\n\r\n') }], 0), 'request');
+const paired = pairExchanges(asked, withInterim);
+assert.deepEqual(
+  paired.map((x) => [x.request?.path, x.interim.map((r) => r.status), x.response?.status]),
+  [
+    ['/a', [100], 201],
+    ['/b', [], 200],
+  ],
+);
+
+// 앞부분만 저장된 패킷: 원래 길이를 알고, 본문이 잘린 까닭을 정확히 말한다
+const fullReply = session.packets[14];
+const snapped = new Session(en);
+for (const p of http.packets) snapped.add({ ts: p.ts, linkType: 1, data: p.no === 15 ? p.data.subarray(0, p.data.length - 100) : p.data, origLen: p.origLen });
+const snappedReply = snapped.packets.find((p) => p.tcp && p.tcp.captured < p.tcp.payloadLen)!;
+assert.deepEqual([snappedReply.tcp!.payloadLen, snappedReply.tcp!.captured], [fullReply.tcp!.payloadLen, fullReply.tcp!.payloadLen - 100]);
+assert.equal(snapped.flows[0].tcp!.dataBytes, http.tcp!.dataBytes);
+const snappedBody = httpConversation(snapped.flows[0]).exchanges[0].response!;
+assert.deepEqual([snappedBody.state, snappedBody.cutBy, snappedBody.body.length], ['cut', 'short', 70]);
+
+// 연결 요청이 b 쪽에서만 온 대화를 진단해도 죽지 않는다
+const stray = { ...trouble.flows[2], packets: trouble.flows[2].packets.map((p) => ({ ...p, fromA: false })) } as Flow;
+assert.equal(diagnose(stray, trouble.names, en, trouble.lastTs)[0].tone, 'bad');
+assert.match(session.flows[3].packets[0].summary, /^①/);
 
 console.log('all checks passed');
