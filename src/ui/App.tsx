@@ -7,6 +7,7 @@ import { Session } from '../core/session.ts';
 import type { Flow } from '../core/types.ts';
 import { LOCALE_NAMES, LOCALES, type Locale, type Messages } from '../i18n/index.ts';
 import { PacketDetail } from './Detail.tsx';
+import { HttpMessages } from './Messages.tsx';
 import { initialLocale, LocaleContext, saveLocale, useMessages } from './locale.ts';
 import { FlowList, FlowView, PacketTable } from './views.tsx';
 
@@ -45,7 +46,7 @@ export function App() {
   const [error, setError] = useState<AppError | null>(null);
   const [flowId, setFlowId] = useState<number | null>(null);
   const [packetNo, setPacketNo] = useState<number | null>(null);
-  const [tab, setTab] = useState<'flow' | 'packets'>('flow');
+  const [tab, setTab] = useState<'flow' | 'messages' | 'packets'>('flow');
   const [query, setQuery] = useState('');
   const [appFilter, setAppFilter] = useState<string | null>(null);
   const [problemsOnly, setProblemsOnly] = useState(false);
@@ -206,6 +207,8 @@ export function App() {
   // 상세에는 지금 보고 있는 대화의 패킷만 보여 준다. 대화나 필터를 바꾸면 이전 대화의 패킷이 남아 헷갈리기 때문이다.
   const picked = packetNo === null ? null : (session?.packets[packetNo - 1] ?? null);
   const packet = picked && picked.flowId === flow?.id ? picked : null;
+  const hasMessages = flow?.app === 'HTTP';
+  const view = tab === 'messages' && !hasMessages ? 'flow' : tab;
   const count = (n: number) => n.toLocaleString(L.tag);
 
   return (
@@ -311,14 +314,21 @@ export function App() {
 
             <section className="pane center">
               <nav className="tabs">
-                <button className={tab === 'flow' ? 'on' : ''} onClick={() => setTab('flow')}>
+                <button className={view === 'flow' ? 'on' : ''} onClick={() => setTab('flow')}>
                   {L.ui.tabFlow}
                 </button>
-                <button className={tab === 'packets' ? 'on' : ''} onClick={() => setTab('packets')}>
+                {hasMessages && (
+                  <button className={view === 'messages' ? 'on' : ''} onClick={() => setTab('messages')}>
+                    {L.ui.tabMessages}
+                  </button>
+                )}
+                <button className={view === 'packets' ? 'on' : ''} onClick={() => setTab('packets')}>
                   {L.ui.tabPackets(count(packets.length))}
                 </button>
               </nav>
-              {tab === 'flow' ? (
+              {view === 'messages' && flow ? (
+                <HttpMessages flow={flow} selected={packet?.no ?? null} onSelect={setPacketNo} />
+              ) : view === 'flow' ? (
                 flow ? (
                   <FlowView key={flow.id} flow={flow} names={session.names} now={session.lastTs} selected={packet?.no ?? null} onSelect={setPacketNo} />
                 ) : (
