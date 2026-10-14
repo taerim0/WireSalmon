@@ -35,7 +35,7 @@ const out = execFileSync(
     '-r', file, '-n', '-T', 'fields', '-E', 'separator=/t', '-E', 'occurrence=a', '-E', 'aggregator=,',
     // 우리는 패킷 하나씩 해석하므로 tshark도 조각을 합치지 않게 한다
     '-o', 'tcp.desegment_tcp_streams:FALSE', '-o', 'tls.desegment_ssl_records:FALSE',
-    '-o', 'http.desegment_headers:FALSE', '-o', 'http.desegment_body:FALSE',
+    '-o', 'http.desegment_headers:FALSE', '-o', 'http.desegment_body:FALSE', '-o', 'ip.defragment:FALSE',
     ...FIELDS.flatMap((f) => ['-e', f]),
   ],
   { encoding: 'utf8', maxBuffer: 1 << 30 },
@@ -105,7 +105,7 @@ for (let i = 0; i < Math.min(session.packets.length, theirs.length); i++) {
       check('tcp relative seq', true, String(rel) === first(t['tcp.seq']), ex(rel, t['tcp.seq']));
     }
 
-    const oursRe = p.summary.startsWith(RETRANS);
+    const oursRe = p.summary.startsWith(RETRANS) || p.summary.startsWith('[빠른 재전송]');
     const theirRe = has(t['tcp.analysis.retransmission']) || has(t['tcp.analysis.fast_retransmission']) || has(t['tcp.analysis.spurious_retransmission']);
     const theirOoo = has(t['tcp.analysis.out_of_order']);
     check('retransmission: we flag, tshark agrees', oursRe, theirRe, ex('retrans', theirOoo ? 'out-of-order' : 'none'));

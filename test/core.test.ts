@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { flowStatus, flowTitle } from '../src/core/describe.ts';
 import { diagnose, problemOf } from '../src/core/diagnose.ts';
 import { CaptureReader } from '../src/core/reader.ts';
-import { buildTroubleSample, buildWebVisitSample } from '../src/core/sample.ts';
+import { buildTroubleSample, buildWebVisitSample, SAMPLE_GROUPS, SAMPLES } from '../src/core/sample.ts';
 import { Session } from '../src/core/session.ts';
 import { httpConversation, pairExchanges, parseHttp, reassemble } from '../src/core/stream.ts';
 import type { Flow } from '../src/core/types.ts';
@@ -242,5 +242,78 @@ assert.deepEqual([snappedBody.state, snappedBody.cutBy, snappedBody.body.length]
 const stray = { ...trouble.flows[2], packets: trouble.flows[2].packets.map((p) => ({ ...p, fromA: false })) } as Flow;
 assert.equal(diagnose(stray, trouble.names, en, trouble.lastTs)[0].tone, 'bad');
 assert.match(session.flows[3].packets[0].summary, /^①/);
+
+// 강의 주제별 샘플: 각각 의도한 동작 하나를 보여 주는지 확인한다
+const openSample = (id: string, L = en) => load(SAMPLES.find((s) => s.id === id)!.build(L.sampleBodyLine), undefined, L);
+const lines = (f: Flow) => f.packets.map((p) => p.summary);
+for (const sample of SAMPLES) {
+  assert.ok(SAMPLE_GROUPS.includes(sample.group));
+  for (const L of [ko, en]) assert.ok(L.samples[sample.id]?.description, `${sample.id} has no description`);
+  const s = openSample(sample.id);
+  assert.ok(s.packets.every((p) => !p.truncated && p.layers.every((l) => l.brief)), sample.id);
+  for (const p of s.packets) assert.ok(!hangul.test(p.summary + p.layers.map((l) => l.fields.map((f) => f.label + f.value + (f.help ?? '')).join('')).join('')), `${sample.id} #${p.no}: ${p.summary}`);
+  // 문제를 보여 주려는 샘플이 아니면 문제 표시가 붙지 않아야 한다
+  if (sample.id !== 'trouble') for (const f of s.flows) assert.equal(problemOf(diagnose(f, s.names, en, s.lastTs)), null, `${sample.id}: ${flowTitle(f, s.names, en)}`);
+}
+
+// HTTP/1.0은 객체마다 연결 하나, HTTP/1.1은 연결 하나에 요청 둘
+const connections = openSample('http-connections');
+assert.deepEqual(connections.flows.map((f) => [f.host, httpConversation(f).exchanges.length]), [['http10.example.com', 1], ['http10.example.com', 1], ['http11.example.com', 2]]);
+
+// 쿠키와 조건부 GET: 두 번째 요청이 쿠키와 날짜를 돌려보내고 본문 없는 304를 받는다
+const [firstVisit, secondVisit] = httpConversation(openSample('http-cookie-cache').flows[0]).exchanges;
+const header = (msg: { headers: [string, string][] } | undefined, name: string) => msg?.headers.find(([k]) => k === name)?.[1];
+assert.equal(header(secondVisit.request, 'Cookie'), header(firstVisit.response, 'Set-Cookie')?.split(';')[0]);
+assert.equal(header(secondVisit.request, 'If-Modified-Since'), header(firstVisit.response, 'Last-Modified'));
+assert.deepEqual([secondVisit.response?.status, secondVisit.response?.body.length], [304, 0]);
+
+assert.deepEqual(
+  openSample('dns-records').flows.map((f) => f.packets[1].summary),
+  [
+    '"example.com is at 93.184.216.34"',
+    '"www.example.com is at 93.184.216.34"',
+    '"ipv6.example.com is at 2606:2800:220:1:248:1893:25c8:1946"',
+    '"example.net" mail server: 10 mail.example.net',
+    '"example.org" name server: ns1.example.org (and 1 more)',
+  ],
+);
+
+assert.deepEqual(openSample('udp-vs-tcp').flows.map((f) => [f.app, f.packets.length]), [['UDP', 2], ['TCP', 10]]);
+
+// 4단계로 끊기: FIN, ACK, (서버가 마저 보냄), FIN, ACK
+const closing = openSample('tcp-open-close').flows[0];
+assert.deepEqual(closing.packets.slice(7).map((p) => [p.fromA, p.tcp!.flags & 1, p.tcp!.payloadLen]), [[true, 1, 0], [false, 0, 0], [false, 0, 4], [true, 0, 0], [false, 1, 0], [true, 0, 0]]);
+assert.deepEqual([closing.tcp!.fin.a, closing.tcp!.fin.b], [true, true]);
+
+const [timeout, fast] = openSample('tcp-retransmit').flows;
+assert.deepEqual(lines(timeout).slice(3, 6).map((s) => s.startsWith('[Resent]')), [false, true, true]);
+assert.deepEqual(timeout.packets.slice(3, 6).map((p) => Math.round((p.ts - timeout.packets[3].ts) * 1000)), [0, 1000, 3000]);
+assert.deepEqual(lines(fast).slice(9, 13).map((s) => s.slice(0, 16)), ['Duplicate ACK #1', 'Duplicate ACK #2', 'Duplicate ACK #3', '[Fast retransmit']);
+assert.deepEqual([timeout.tcp!.retransmits, fast.tcp!.retransmits, fast.tcp!.dupAcks.b], [2, 1, 0]);
+
+const flowControl = openSample('tcp-flow-control').flows[0];
+assert.deepEqual(flowControl.packets.filter((p) => !p.fromA && p.tcp!.payloadLen === 0 && !(p.tcp!.flags & 3)).map((p) => p.tcp!.window), [2000, 1000, 0, 0, 0, 3000, 2000]);
+assert.deepEqual(lines(flowControl).slice(8, 14).map((s) => s.split(' (')[0].split(' —')[0]), ['No room to receive', 'Window probe', 'No room to receive', 'Window probe', 'No room to receive', 'Room again']);
+assert.deepEqual([flowControl.tcp!.zeroWindows, flowControl.tcp!.retransmits, flowControl.tcp!.dataBytes], [1, 0, 4000]);
+
+assert.deepEqual(openSample('dhcp').flows[0].packets.map((p) => p.info?.dhcp), [1, 2, 3, 5]);
+
+// 쪼개진 조각은 첫 조각과 같은 대화에 들어간다
+const fragmented = openSample('ip-fragment');
+assert.deepEqual([fragmented.flows.length, fragmented.flows[0].packets.length], [1, 8]);
+assert.deepEqual(fragmented.packets.slice(2, 5).map((p) => [p.fromA, p.layers[1].fields[5].value]), [
+  [true, 'fragment (offset 0, more to come)'],
+  [true, 'fragment (offset 1480, more to come)'],
+  [true, 'fragment (offset 2960, last piece)'],
+]);
+
+// 라우터의 알림은 원래 핑 대화에 들어가고, 알림을 받은 요청은 "응답 없음"이 아니다
+const trace = openSample('traceroute');
+assert.equal(trace.flows.length, 1);
+assert.deepEqual(trace.packets.filter((p) => !p.fromA).map((p) => p.src), ['192.168.0.1', '10.45.0.1', '203.0.113.254', '93.184.216.34']);
+assert.match(trace.packets[0].summary, /^\[TTL 1\] Ping request/);
+assert.deepEqual(diagnose(trace.flows[0], trace.names, en, trace.lastTs).map((d) => d.tone), ['info']);
+
+assert.deepEqual(openSample('arp').flows.map((f) => [f.app, f.packets.length]), [['ARP', 2], ['PING', 2]]);
 
 console.log('all checks passed');
