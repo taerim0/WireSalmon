@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { flowTitle } from '../core/describe.ts';
 import { findings, problemOf } from '../core/diagnose.ts';
 import { CaptureError, CaptureReader } from '../core/reader.ts';
-import { SAMPLES } from '../core/sample.ts';
+import { SAMPLE_GROUPS, SAMPLES } from '../core/sample.ts';
 import { Session } from '../core/session.ts';
 import type { Flow } from '../core/types.ts';
 import { LOCALE_NAMES, LOCALES, type Locale, type Messages } from '../i18n/index.ts';
@@ -235,10 +235,14 @@ export function App() {
             <option value="" disabled>
               {L.ui.openSample}
             </option>
-            {SAMPLES.map((s) => (
-              <option key={s.id} value={s.id}>
-                {L.samples[s.id]?.title ?? s.id}
-              </option>
+            {SAMPLE_GROUPS.map((group) => (
+              <optgroup key={group} label={L.sampleGroups[group]}>
+                {SAMPLES.filter((s) => s.group === group).map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {L.samples[s.id]?.title ?? s.id}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
           <button className="btn" onClick={() => fileInput.current?.click()}>
@@ -283,6 +287,11 @@ export function App() {
         </header>
 
         {error && <div className="error">{errorText(error, L)}</div>}
+        {source?.kind === 'sample' && L.samples[source.id] && (
+          <div className="sample-note">
+            <b>{L.ui.samplePoint}</b> {L.samples[source.id].description}
+          </div>
+        )}
 
         {!session ? (
           <Welcome onSample={openSample} liveAvailable={!!interfaces?.length} />
@@ -357,14 +366,19 @@ function Welcome({ onSample, liveAvailable }: { onSample: (id: string) => void; 
       <ol>
         <li>
           <b>{ui.step1Title}</b> — {ui.step1Body}
-          <div className="sample-cards">
-            {SAMPLES.map((s) => (
-              <button key={s.id} className="sample-card" onClick={() => onSample(s.id)}>
-                <b>{L.samples[s.id]?.title ?? s.id}</b>
-                <span className="muted">{L.samples[s.id]?.description}</span>
-              </button>
-            ))}
-          </div>
+          {SAMPLE_GROUPS.map((group) => (
+            <div key={group} className="sample-group">
+              <h3>{L.sampleGroups[group]}</h3>
+              <div className="sample-cards">
+                {SAMPLES.filter((s) => s.group === group).map((s) => (
+                  <button key={s.id} className="sample-card" onClick={() => onSample(s.id)}>
+                    <b>{L.samples[s.id]?.title ?? s.id}</b>
+                    <span className="muted">{L.samples[s.id]?.description}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
         </li>
         <li>
           <b>{ui.step2Title}</b> — {ui.step2Body}

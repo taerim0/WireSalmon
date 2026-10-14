@@ -1215,3 +1215,29 @@ input[type='search'] {
   border: 1px dashed var(--line);
   border-radius: 8px;
 }
+
+/* 샘플을 열었을 때 무엇을 볼지 알려 주는 줄 */
+.sample-note {
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  font-size: 13px;
+}
+
+.sample-note b {
+  margin-right: 6px;
+  color: var(--accent);
+}
+
+.sample-group {
+  margin-top: 16px;
+}
+
+.sample-group h3 {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.welcome {
+  max-width: 860px;
+}
