@@ -18,13 +18,27 @@ Wireshark shows you one packet per line. A beginner wants to know *what just hap
 - **HTTP messages** — for unencrypted HTTP, pieces that arrived in separate packets are joined into whole requests and responses, with links back to the packets that carried the headers and the body. Handles out-of-order and resent pieces, Content-Length and chunked bodies, and says so when a body is incomplete. Compressed bodies are not decoded.
 - **Envelope view** — Ethernet → IP → TCP → HTTP shown as nested envelopes, with a description for every field. Hover an envelope to highlight its bytes in the hex dump.
 - **Korean and English** — switch languages from the top bar at any time, even with a capture open. The choice is remembered, and the first visit follows the browser language.
-- **Three ways in** — built-in samples (one where everything works, one where things go wrong), `.pcap` / `.pcapng` files (drag and drop), or live capture.
+- **Three ways in** — built-in samples, `.pcap` / `.pcapng` files (drag and drop), or live capture.
 
 Files are parsed inside the browser. Nothing is uploaded. See [Privacy](#privacy).
 
+## Built-in samples
+
+Each sample is a small capture that shows one behaviour, grouped the way a computer networks course is usually taught. Opening one shows a line saying what to look at.
+
+| Layer | Samples |
+|---|---|
+| At a glance | Joining Wi-Fi and opening a website · A network where things go wrong |
+| Application | HTTP non-persistent and persistent connections · Cookies and conditional GET · DNS record types |
+| Transport | UDP compared with TCP · Opening and closing a TCP connection · Retransmission (timeout and fast retransmit) · Flow control |
+| Network | DHCP · IP fragmentation · traceroute |
+| Link | ARP |
+
+The samples are generated in code (`src/core/sample.ts`), and each one was checked against Wireshark's reading of the same packets.
+
 ## Supported protocols
 
-Dissected in detail: Ethernet (VLAN), ARP, IPv4, IPv6, ICMP, ICMPv6, TCP, UDP, DNS, mDNS, LLMNR, DHCP, HTTP/1.x, TLS (handshake messages and server name).
+Dissected in detail: Ethernet (VLAN), ARP, IPv4 (fragments are kept with their conversation), IPv6, ICMP (error notices join the conversation they are about), ICMPv6, TCP (retransmission, fast retransmit, duplicate ACK, out-of-order, keep-alive, zero window, window probe and update), UDP, DNS, mDNS, LLMNR, DHCP, HTTP/1.x, TLS (handshake messages and server name).
 
 Other traffic is labelled by well-known port (SSH, NTP, SSDP, QUIC, …) without deeper decoding.
 
