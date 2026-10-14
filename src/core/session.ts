@@ -84,7 +84,8 @@ export class Session {
     flow.lastTs = p.ts;
     if (p.appLabel && (flow.app === 'TCP' || flow.app === 'UDP' || flow.app === p.proto)) flow.app = p.appLabel;
     if (p.host && !flow.host) flow.host = p.host;
-    if (flow.tcp) this.tcpStep(flow, p);
+    // ICMP 오류 알림처럼 TCP가 아닌 패킷이 TCP 대화에 들어올 수도 있다
+    if (flow.tcp && p.tcp) this.tcpStep(flow, p);
     if (p.info?.dns) {
       if (!p.info.dns.response) {
         if (!this.queryTs.has(flow.id)) this.queryTs.set(flow.id, p.ts);
@@ -114,7 +115,7 @@ export class Session {
       const lookup = this.lookups.get(b.addr);
       if (lookup && p.ts - lookup.ts <= LOOKUP_WINDOW) flow.lookup = lookup;
     }
-    if (p.tcp) flow.tcp = { syn: false, synAck: false, established: false, fin: { a: false, b: false }, rst: false, isn: {}, maxEnd: {}, maxEndTs: {}, dataBytes: 0, retransmits: 0, outOfOrder: 0 };
+    if (p.tcp) flow.tcp = { syn: false, synAck: false, established: false, fin: { a: false, b: false }, rst: false, isn: {}, maxEnd: {}, maxEndTs: {}, dataBytes: 0, retransmits: 0, outOfOrder: 0, lastAck: {}, dupAcks: { a: 0, b: 0 }, window: {}, zeroWindows: 0 };
     return flow;
   }
 
@@ -137,9 +138,11 @@ export class Session {
     // 연결 유지 확인(keep-alive): 이미 보낸 마지막 바이트 자리를 다시 찔러 본다. 재전송과 구별한다.
     const sent = s.maxEnd[me];
     const keepAlive = sent !== undefined && t.payloadLen <= 1 && !(t.flags & (SYN | FIN | RST)) && t.seq === (sent - 1) >>> 0;
+    // 창 탐색: 상대가 "받을 공간 없음"이라고 한 동안, 공간이 생겼는지 1바이트로 찔러 본다
+    const windowProbe = t.payloadLen === 1 && s.window[peer] === 0 && !(t.flags & (SYN | FIN | RST));
     let retransmit = false;
     let outOfOrder = false;
-    if (t.payloadLen > 0 && !keepAlive) {
+    if (t.payloadLen > 0 && !keepAlive && !windowProbe) {
       const end = (t.seq + t.payloadLen) >>> 0;
       if (s.maxEnd[me] !== undefined && seqAtMost(end, s.maxEnd[me]!)) {
         if (p.ts - (s.maxEndTs[me] ?? -Infinity) < OUT_OF_ORDER_WINDOW) {
@@ -179,14 +182,27 @@ export class Session {
     } else if (keepAlive) {
       p.stage = 'data';
       p.summary = m.keepAlive;
+    } else if (windowProbe) {
+      p.stage = 'data';
+      p.summary = m.windowProbe;
     } else if (t.payloadLen === 0) {
+      const previous = s.window[me];
+      // 같은 확인 번호를 되풀이하면 "그 다음 것이 아직 안 왔다"는 뜻이다 (중복 ACK)
+      const waiting = s.maxEnd[peer] !== undefined && !seqAtMost(s.maxEnd[peer]!, t.ack);
+      const duplicate = s.lastAck[me] === t.ack && waiting && t.window === previous && t.window > 0;
+      s.dupAcks[me] = duplicate ? s.dupAcks[me] + 1 : 0;
       if (s.synAck && !s.established && p.fromA) {
         s.established = true;
         p.stage = 'open';
         p.summary = m.established;
       } else {
         p.stage = s.fin.a || s.fin.b ? 'close' : 'data';
-        p.summary = m.ackOnly;
+        if (t.window === 0) {
+          if (previous !== 0) s.zeroWindows++;
+          p.summary = m.zeroWindow;
+        } else if (previous === 0) p.summary = m.windowUpdate;
+        else if (duplicate) p.summary = m.dupAck(s.dupAcks[me]);
+        else p.summary = m.ackOnly;
       }
     } else {
       p.stage = 'data';
@@ -196,7 +212,10 @@ export class Session {
       }
     }
     if (t.payloadLen > 0 && s.synAck) s.established = true;
-    if (retransmit) p.summary = m.retransmit(p.summary);
+    // 중복 ACK를 세 번 받고 바로 다시 보낸 것은 타임아웃을 기다리지 않은 "빠른 재전송"이다
+    if (retransmit) p.summary = (s.dupAcks[peer] >= 3 ? m.fastRetransmit : m.retransmit)(p.summary);
     if (outOfOrder) p.summary = m.outOfOrder(p.summary);
+    if (t.flags & ACK) s.lastAck[me] = t.ack;
+    if (!(t.flags & SYN)) s.window[me] = t.window;
   }
 }

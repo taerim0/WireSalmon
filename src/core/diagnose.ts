@@ -24,11 +24,8 @@ const WAIT_PING = 2;
 const WAIT_ARP = 1;
 const WAIT_DHCP = 3;
 
-/**
- * 대화를 살펴보고 문제나 특이점을 쉬운 말로 풀어 준다.
- * now는 캡처의 마지막 시각으로, 방금 보낸 요청을 "응답 없음"으로 오해하지 않기 위해 쓴다.
- */
-export function diagnose(flow: Flow, names: Map<string, string>, L: Messages, now: number): Finding[] {
+/** 대화 종류별 진단 */
+function inspect(flow: Flow, names: Map<string, string>, L: Messages, now: number): Finding[] {
   const m = L.diag;
   const out: Finding[] = [];
   const add = (tone: Tone, [title, detail]: [string, string]) => out.push({ tone, title, detail });
@@ -76,6 +73,7 @@ export function diagnose(flow: Flow, names: Map<string, string>, L: Messages, no
       else add('warn', m.aborted(who));
     }
     if (s.retransmits) add(s.retransmits >= 3 ? 'warn' : 'info', m.retransmits(s.retransmits));
+    if (s.zeroWindows) add('info', m.zeroWindow(s.zeroWindows));
 
     const alert = packets.find((p) => p.info?.tlsAlert?.fatal)?.info?.tlsAlert;
     if (alert) add('bad', m.tlsFailed(m.tlsAlerts[alert.code] ?? String(alert.code)));
@@ -107,11 +105,13 @@ export function diagnose(flow: Flow, names: Map<string, string>, L: Messages, no
   if (flow.app === 'PING') {
     const replied = new Set(packets.filter((p) => p.info?.icmp?.echo === 'reply').map((p) => p.info!.icmp!.seq));
     const requests = packets.filter((p) => p.info?.icmp?.echo === 'request');
-    const lost = requests.filter((p) => !replied.has(p.info!.icmp!.seq) && now - p.ts > WAIT_PING).length;
+    // 라우터가 "수명이 다했다"고 알려 준 요청은 답을 받은 것이다 (traceroute)
+    const noticed = new Set(packets.map((p) => p.info?.icmp?.aboutSeq).filter((seq): seq is number => seq !== undefined));
+    const lost = requests.filter((p) => !replied.has(p.info!.icmp!.seq) && !noticed.has(p.info!.icmp!.seq!) && now - p.ts > WAIT_PING).length;
     if (requests.length === 0) return out;
     if (lost === requests.length) add('bad', m.pingNoReply(lost));
     else if (lost) add('warn', m.pingLoss(lost, requests.length));
-    else if (replied.size) add('ok', m.pingOk(replied.size));
+    else if (replied.size && !noticed.size) add('ok', m.pingOk(replied.size));
     addSlow();
     return out;
   }
@@ -141,6 +141,23 @@ export function diagnose(flow: Flow, names: Map<string, string>, L: Messages, no
     else if (types.has(5)) add('ok', m.dhcpOk);
     else if (types.has(1) && !types.has(2) && now - packets[0].ts > WAIT_DHCP) add('info', m.dhcpNoOffer);
   }
+  return out;
+}
+
+/**
+ * 대화를 살펴보고 문제나 특이점을 쉬운 말로 풀어 준다.
+ * now는 캡처의 마지막 시각으로, 방금 보낸 요청을 "응답 없음"으로 오해하지 않기 위해 쓴다.
+ */
+export function diagnose(flow: Flow, names: Map<string, string>, L: Messages, now: number): Finding[] {
+  const out = inspect(flow, names, L, now);
+  if (flow.app === 'ICMP' || flow.app === 'ICMPv6') return out;
+  // 이 대화의 패킷 때문에 돌아온 ICMP 오류 알림
+  const notices = flow.packets.filter((p) => p.info?.icmp && !p.info.icmp.echo && !p.info.icmp.v6);
+  const unreachable = notices.filter((p) => p.info!.icmp!.type === 3);
+  const portOnly = unreachable.every((p) => p.info!.icmp!.code === 3);
+  const [title, detail] = portOnly ? L.diag.portUnreachable : L.diag.unreachable;
+  if (unreachable.length) out.push({ tone: portOnly ? 'info' : 'warn', title, detail });
+  if (notices.some((p) => p.info!.icmp!.type === 11)) out.push({ tone: 'info', title: L.diag.ttlExpired[0], detail: L.diag.ttlExpired[1] });
   return out;
 }
 

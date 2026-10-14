@@ -42,6 +42,9 @@ export const KNOWN_PORTS: Record<number, string> = {
   8080: 'HTTP',
 };
 
+/** 평범한 핑은 수명을 64 이상으로 보낸다. 이보다 짧으면 경로를 추적하는 중이라고 본다. */
+const TRACE_TTL = 30;
+
 const ETHER_NAMES: Record<number, string> = { 0x0800: 'IPv4', 0x86dd: 'IPv6', 0x0806: 'ARP', 0x8100: 'VLAN', 0x88cc: 'LLDP' };
 const IP_PROTO: Record<number, string> = { 1: 'ICMP', 2: 'IGMP', 6: 'TCP', 17: 'UDP', 47: 'GRE', 50: 'ESP (IPsec)', 58: 'ICMPv6' };
 const TCP_FLAGS: [number, string][] = [
@@ -94,6 +97,10 @@ function tlsServerName(d: Uint8Array, o: number, end: number): string | undefine
 /** 주어진 언어로 패킷을 설명하는 해석기를 만든다 */
 export function createDissector(L: Messages) {
   const portText = (port: number) => (KNOWN_PORTS[port] ? `${port} (${KNOWN_PORTS[port]} · ${L.ports[port]})` : String(port));
+  /** 쪼개진 패킷의 첫 조각이 어느 대화였는지 기억해 두었다가 뒷조각을 같은 대화에 넣는다 */
+  const fragments = new Map<string, Pick<Packet, 'flowKey' | 'proto' | 'appLabel' | 'srcPort' | 'dstPort'>>();
+  /** 지금 해석 중인 IP 패킷의 남은 수명 */
+  let ttl = 0;
   const ipProto = (n: number) => (n === 41 ? L.ip.tunnel6 : (IP_PROTO[n] ?? L.ip.protoN(n)));
 
   function dissect(raw: RawPacket, no: number): Packet {
@@ -244,7 +251,7 @@ export function createDissector(L: Messages) {
     p.flowKey = `${pairKey('ip', src, dst)}|${proto}`;
     p.layers.push({
       id: 'ipv4',
-      brief: `${src} → ${dst}`,
+      brief: `${src} → ${dst} · TTL ${d[o + 8]}`,
       name: 'IPv4',
       osi: m.osi,
       role: m.role4,
@@ -260,12 +267,21 @@ export function createDissector(L: Messages) {
         f(m.id, u16(d, o + 4), m.idHelp),
       ],
     });
+    ttl = d[o + 8];
+    const fragmentKey = `${src}|${dst}|${u16(d, o + 4)}`;
     if (fragOffset > 0) {
-      p.summary = m.laterFragment;
+      Object.assign(p, fragments.get(fragmentKey));
+      dataLayer(p, d, o + ihl, end, m.fragmentRole);
+      p.summary = m.fragmentPart(fragOffset, !moreFragments);
       return;
     }
     // 캡처가 패킷 앞부분만 저장했을 때를 위해, 헤더가 알려 주는 원래 끝 위치도 넘긴다
     transport(p, d, o + ihl, end, proto, total ? o + total : p.origLen);
+    if (moreFragments) {
+      if (fragments.size > 2000) fragments.clear();
+      fragments.set(fragmentKey, { flowKey: p.flowKey, proto: p.proto, appLabel: p.appLabel, srcPort: p.srcPort, dstPort: p.dstPort });
+      p.summary = m.firstFragment(p.summary);
+    }
   }
 
   function ip6(p: Packet, d: Uint8Array, o: number) {
@@ -330,8 +346,29 @@ export function createDissector(L: Messages) {
     p.proto = v6 ? 'ICMPv6' : 'ICMP';
     p.appLabel = isEcho ? 'PING' : p.proto;
     p.info = { icmp: { type, code: d[o + 1], v6, ...(isEcho ? { echo: type === 8 || type === 128 ? 'request' : 'reply', seq: u16(d, o + 6) } : {}) } };
-    p.summary = meaning;
+    p.summary = !v6 && type === 8 && ttl <= TRACE_TTL ? m.shortLived(meaning, ttl) : meaning;
     p.flowKey = pairKey(v6 ? 'icmp6' : 'icmp', p.src, p.dst);
+    // 오류 알림은 문제가 된 원래 패킷의 앞부분을 담고 있다. 그것을 읽어 원래 대화에 넣는다.
+    let about: string | undefined;
+    const inner = o + 8;
+    if (!v6 && (type === 3 || type === 11 || type === 12) && inner + 28 <= end) {
+      const innerSrc = ipv4(d, inner + 12);
+      const innerDst = ipv4(d, inner + 16);
+      const innerProto = d[inner + 9];
+      const t = inner + (d[inner] & 15) * 4;
+      if (t + 8 <= end && (innerProto === 1 || innerProto === 6 || innerProto === 17)) {
+        about = `${innerSrc} → ${innerDst}`;
+        if (innerProto === 1) {
+          p.flowKey = pairKey('icmp', innerSrc, innerDst);
+          p.appLabel = 'PING';
+          p.info.icmp!.aboutSeq = u16(d, t + 6);
+        } else {
+          p.flowKey = pairKey(innerProto === 6 ? 'tcp' : 'udp', `${innerSrc}#${u16(d, t)}`, `${innerDst}#${u16(d, t + 2)}`);
+          p.appLabel = undefined;
+        }
+        p.summary = m.noticeFrom(p.src, meaning);
+      }
+    }
     p.layers.push({
       id: 'icmp',
       brief: meaning,
@@ -344,6 +381,7 @@ export function createDissector(L: Messages) {
         f(m.type, `${type} — ${meaning}`),
         f(m.code, d[o + 1]),
         ...(isEcho ? [f(m.id, u16(d, o + 4), m.idHelp), f(m.seq, u16(d, o + 6), m.seqHelp)] : []),
+        ...(about ? [f(m.about, about, m.aboutHelp)] : []),
       ],
     });
   }
@@ -364,7 +402,7 @@ export function createDissector(L: Messages) {
     p.srcPort = sp;
     p.dstPort = dp;
     p.proto = 'TCP';
-    p.tcp = { seq, ack, flags, payloadLen: sentLen, captured: payload.length, payloadStart: headerEnd };
+    p.tcp = { seq, ack, flags, payloadLen: sentLen, captured: payload.length, payloadStart: headerEnd, window: u16(d, o + 14) };
     p.flowKey = pairKey('tcp', `${p.src}#${sp}`, `${p.dst}#${dp}`);
     p.summary = sentLen ? L.data.sent(sentLen) : m.control(flagNames.join(', '));
     p.layers.push({
@@ -493,6 +531,8 @@ export function createDissector(L: Messages) {
     let qname = '';
     let qtype = 1;
     const answers: string[] = [];
+    /** 주소가 아닌 첫 답: [종류, 값] */
+    let otherAnswer: [number, string] | undefined;
     try {
       for (let i = 0; i < qd; i++) {
         const [name, next] = dnsName(d, off, o, end);
@@ -516,7 +556,9 @@ export function createDissector(L: Messages) {
         if (type === 1 && rdLen === 4) value = ipv4(d, rd);
         else if (type === 28 && rdLen === 16) value = ipv6(d, rd);
         else if (type === 5 || type === 12 || type === 2) value = dnsName(d, rd, o, end)[0];
+        else if (type === 15 && rdLen > 2) value = `${u16(d, rd)} ${dnsName(d, rd + 2, o, end)[0]}`;
         else value = `(${L.packet.bytes(rdLen)})`;
+        if (type !== 1 && type !== 28) otherAnswer ??= [type, value];
         if (type === 1 || type === 28) {
           answers.push(value);
           (p.names ??= []).push([value, qname || name]);
@@ -533,6 +575,7 @@ export function createDissector(L: Messages) {
     else if (rcode === 3) p.summary = m.noSuchName(qname);
     else if (answers.length) p.summary = m.resolved(qname, answers[0], answers.length - 1);
     else if (an === 0) p.summary = m.noData(qname);
+    else if (otherAnswer) p.summary = m.answerIs(qname, m.types[otherAnswer[0]] ?? m.info, otherAnswer[1], an - 1);
     else p.summary = m.answered(qname, an);
     p.layers.push({ id: 'dns', brief: `${response ? m.response : m.query}${qname ? `: ${qname}` : ''}`, name: label, osi: m.osi, role: label === 'DNS' ? m.role : m.roleLocal, start: o, end, fields });
   }

@@ -105,6 +105,9 @@ export const en: Messages = {
     protoN: (n) => `protocol ${n}`,
     tunnel6: 'IPv6 tunnel',
     laterFragment: 'A later piece of a fragmented IP packet',
+    firstFragment: (summary) => `[First fragment] ${summary}`,
+    fragmentPart: (offset, last) => `${last ? 'Last' : 'Next'} fragment of the packet (from byte ${offset})`,
+    fragmentRole: 'A later piece of a packet that was too big and got split. Details such as ports are only in the first piece; the receiver puts the pieces back together using the identification number and the offsets.',
     src: 'From (IP)',
     srcHelp4: 'The address that identifies a device on the internet. 192.168.x.x, 10.x.x.x and 172.16–31.x.x are private addresses used only inside a home or office.',
     srcHelp6: 'Addresses starting with fe80:: work only on the local network. Addresses starting with ff02:: go to several devices at once.',
@@ -148,6 +151,10 @@ export const en: Messages = {
       143: 'Multicast group membership report',
     },
     typeN: (n) => `type ${n}`,
+    shortLived: (meaning, ttl) => `[TTL ${ttl}] ${meaning}`,
+    noticeFrom: (who, meaning) => `Notice from ${who} — ${meaning}`,
+    about: 'About',
+    aboutHelp: 'An error notice carries the beginning of the packet that caused it, which is how we can tell which exchange it is about.',
     type: 'Type',
     code: 'Code',
     id: 'Identifier',
@@ -186,6 +193,11 @@ export const en: Messages = {
     encryptedChunk: (n) => `${n} bytes of encrypted data (continued)`,
     httpChunk: (n) => `${n} more bytes of web data`,
     retransmit: (summary) => `[Resent] ${summary}`,
+    fastRetransmit: (summary) => `[Fast retransmit] ${summary}`,
+    dupAck: (n) => `Duplicate ACK #${n} — "the next piece still hasn't arrived"`,
+    zeroWindow: 'No room to receive (Window 0) — "hold on a moment"',
+    windowUpdate: 'Room again (Window Update) — "you can send now"',
+    windowProbe: 'Window probe — "can you take more yet?"',
     outOfOrder: (summary) => `[Out of order] ${summary}`,
   },
 
@@ -203,7 +215,7 @@ export const en: Messages = {
     roleLocal: 'How devices behind the same router find each other by name without a DNS server. Used to discover printers and smart devices.',
     types: {
       1: 'IPv4 address',
-      2: 'name server for the domain',
+      2: 'name server',
       5: 'alias (another name)',
       6: 'domain administration record',
       12: 'name for an IP address',
@@ -233,6 +245,7 @@ export const en: Messages = {
     noSuchName: (name) => `"There is no such name as ${name}"`,
     resolved: (name, first, more) => `"${name} is at ${first}"${more ? ` (and ${more} more)` : ''}`,
     answered: (name, count) => `Answer about ${name} (${count} ${count === 1 ? 'record' : 'records'})`,
+    answerIs: (name, what, value, more) => `"${name}" ${what}: ${value}${more ? ` (and ${more} more)` : ''}`,
     noData: (name) => `"${name} has no record of the kind you asked for"`,
   },
 
@@ -414,6 +427,10 @@ export const en: Messages = {
       'Programs such as browsers sometimes drop a connection this way once they are done with it. If data went back and forth normally, it is usually not a problem.',
     ],
     resetAfterClose: ['A reset was sent while closing', 'This is common when leftovers are cleaned up after a connection closes. It is usually not a problem.'],
+    zeroWindow: (n) => [
+      `The receiver filled up and the sender had to pause ${n} ${n === 1 ? 'time' : 'times'}`,
+      'Data arrived faster than the receiving program took it out. The receiver announcing a window of 0 to make the sender wait is TCP flow control.',
+    ],
     retransmits: (n) => [
       `The same data was sent again ${n} ${n === 1 ? 'time' : 'times'}`,
       'Data from a stretch that had already been sent went by again some time later. That happens when a packet was lost on the way or its acknowledgement was late. It is common on weak Wi-Fi or a congested network, and a lot of it makes things feel slow. (Data that followed immediately was treated as merely out of order and not counted.)',
@@ -546,6 +563,13 @@ export const en: Messages = {
     tooLong: 'The conversation is too long, so only the beginning was joined.',
   },
 
+  sampleGroups: {
+    overview: 'At a glance',
+    application: 'Application layer',
+    transport: 'Transport layer',
+    network: 'Network layer',
+    link: 'Link layer',
+  },
   samples: {
     'web-visit': {
       title: 'Joining Wi-Fi and opening a website',
@@ -555,11 +579,56 @@ export const en: Messages = {
       title: 'A network where things go wrong',
       description: 'A mistyped address, a server that is down, a firewall, a slow server and a dropped connection. Read the diagnosis to see what is wrong where.',
     },
+    'http-connections': {
+      title: 'HTTP non-persistent and persistent connections',
+      description: 'The same two objects (a page and an image) are fetched. HTTP/1.0 opens a new connection per object, giving two conversations; HTTP/1.1 does it all on one. Compare the number of conversations and handshakes.',
+    },
+    'http-cookie-cache': {
+      title: 'Cookies and conditional GET',
+      description: 'Set-Cookie and Last-Modified from the first response come back as Cookie and If-Modified-Since in the second request, and the server answers 304 with no body. Compare the headers in the "HTTP messages" tab.',
+    },
+    'dns-records': {
+      title: 'DNS record types',
+      description: 'Five questions with one answer each: A (IPv4 address), CNAME (alias), AAAA (IPv6 address), MX (mail server), NS (name server). Select an answer packet and look at "Answer" in the DNS envelope.',
+    },
+    'udp-vs-tcp': {
+      title: 'UDP compared with TCP',
+      description: 'The same "hello" is sent and echoed back. UDP takes 2 packets and TCP takes 10. See which of the extra TCP packets belong to opening, acknowledging and closing.',
+    },
+    'tcp-open-close': {
+      title: 'Opening and closing a TCP connection',
+      description: 'Opened in three steps (SYN, SYN+ACK, ACK) and closed in four (FIN, ACK, FIN, ACK). After the client sends its FIN, the server still sends more data: the connection is half-closed for a while.',
+    },
+    'tcp-retransmit': {
+      title: 'TCP retransmission: timeout and fast retransmit',
+      description: 'In the first conversation no acknowledgement arrives, so the data is resent after 1 second and again after 2 (timeout, with the wait doubling). In the second, three duplicate ACKs trigger an immediate resend (fast retransmit). Compare the times on the left.',
+    },
+    'tcp-flow-control': {
+      title: 'TCP flow control',
+      description: 'The window the receiver announces shrinks to 2000, 1000 and 0, and at 0 the sender stops. Select the acknowledgements and follow "Room to receive" in the TCP envelope.',
+    },
+    dhcp: {
+      title: 'Getting an IP address with DHCP',
+      description: 'Four steps: Discover, Offer, Request, ACK. Notice that the device has no address yet, so it sends from 0.0.0.0 to everyone (255.255.255.255), and look at the router, DNS server and lease time that come with the address.',
+    },
+    'ip-fragment': {
+      title: 'IP fragmentation',
+      description: 'A small ping fits in one packet, but a 3000-byte ping exceeds what one packet can carry (MTU 1500) and is split into three fragments. See how "Fragmentation" and "Identification" in the IPv4 envelope differ between them.',
+    },
+    traceroute: {
+      title: 'traceroute: finding the path with TTL',
+      description: 'Sending with a TTL of 1, 2, 3 makes each router along the way report that the packet ran out of hops. The addresses that send those notices are the path. Only the fourth probe reaches the destination.',
+    },
+    arp: {
+      title: 'Finding a MAC address with ARP',
+      description: 'Knowing only the IP address of the router, the device asks everyone (broadcast) for its MAC address, and only then can it send a ping. Compare the destination device of the question (ff:ff:…) with that of the answer in the Ethernet envelope.',
+    },
   },
   sampleBodyLine: 'Like salmon swimming upstream, packets find their way.',
 
   ui: {
     openSample: 'Open sample',
+    samplePoint: 'What to look at',
     problems: (n) => `${n} with problems`,
     problemBad: 'Has a problem',
     problemWarn: 'Worth a look',

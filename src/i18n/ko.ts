@@ -106,6 +106,9 @@ export const ko = {
     protoN: (n: number) => `프로토콜 ${n}`,
     tunnel6: 'IPv6 터널',
     laterFragment: '쪼개진 IP 패킷의 뒷부분 조각',
+    firstFragment: (summary: string) => `[첫 조각] ${summary}`,
+    fragmentPart: (offset: number, last: boolean) => `쪼개진 패킷의 ${last ? '마지막' : '다음'} 조각 (위치 ${offset}바이트부터)`,
+    fragmentRole: '너무 커서 쪼개진 패킷의 뒷부분입니다. 포트 같은 정보는 첫 조각에만 있고, 받는 쪽이 식별 번호와 위치를 보고 다시 합칩니다.',
     src: '보낸 곳 (IP)',
     srcHelp4: '인터넷에서 장비를 구분하는 주소입니다. 192.168.x.x, 10.x.x.x, 172.16~31.x.x는 집이나 회사 안에서만 쓰는 사설 주소입니다.',
     srcHelp6: 'fe80::으로 시작하면 같은 네트워크 안에서만 쓰는 주소, ff02::로 시작하면 여러 장비에게 동시에 보내는 주소입니다.',
@@ -149,6 +152,10 @@ export const ko = {
       143: '멀티캐스트 그룹 가입 알림',
     } as Record<number, string>,
     typeN: (n: number) => `종류 ${n}`,
+    shortLived: (meaning: string, ttl: number) => `[수명 ${ttl}] ${meaning}`,
+    noticeFrom: (who: string, meaning: string) => `${who}의 알림 — ${meaning}`,
+    about: '무엇에 대한 알림',
+    aboutHelp: '오류 알림은 문제가 된 원래 패킷의 앞부분을 그대로 담아 보냅니다. 그래서 어느 통신에 대한 알림인지 알 수 있습니다.',
     type: '종류 (Type)',
     code: '세부 코드 (Code)',
     id: '식별 번호',
@@ -187,6 +194,11 @@ export const ko = {
     encryptedChunk: (n: number) => `암호화된 데이터 조각 ${n}바이트`,
     httpChunk: (n: number) => `웹 데이터 이어서 전송 ${n}바이트`,
     retransmit: (summary: string) => `[재전송] ${summary}`,
+    fastRetransmit: (summary: string) => `[빠른 재전송] ${summary}`,
+    dupAck: (n: number) => `중복 확인 ${n}번째 (Dup ACK) — "그 다음 것이 아직 안 왔어요"`,
+    zeroWindow: '받을 공간 없음 (Window 0) — "잠깐 멈춰 주세요"',
+    windowUpdate: '공간이 다시 생김 (Window Update) — "이제 보내도 돼요"',
+    windowProbe: '창 탐색 (Window Probe) — "이제 받을 수 있나요?"',
     outOfOrder: (summary: string) => `[순서 바뀜] ${summary}`,
   },
 
@@ -204,7 +216,7 @@ export const ko = {
     roleLocal: '공유기 안쪽 네트워크에서 DNS 서버 없이 서로의 이름을 찾는 방식입니다. 프린터나 스마트 기기를 찾을 때 쓰입니다.',
     types: {
       1: 'IPv4 주소',
-      2: '이 도메인을 관리하는 서버',
+      2: '네임 서버',
       5: '별명 (다른 이름)',
       6: '도메인 관리 정보',
       12: 'IP로 이름 찾기',
@@ -234,6 +246,7 @@ export const ko = {
     noSuchName: (name: string) => `"${name}"이라는 이름은 없습니다`,
     resolved: (name: string, first: string, more: number) => `"${name}"의 주소는 ${first}${more ? ` 외 ${more}개` : ''}입니다`,
     answered: (name: string, count: number) => `"${name}"에 대한 답변 (${count}건)`,
+    answerIs: (name: string, what: string, value: string, more: number) => `"${name}"의 ${what}: ${value}${more ? ` 외 ${more}개` : ''}`,
     noData: (name: string) => `"${name}"에는 요청한 종류의 정보가 없습니다`,
   },
 
@@ -416,6 +429,10 @@ export const ko = {
       '브라우저 같은 프로그램은 볼일을 마친 연결을 이렇게 바로 닫기도 합니다. 데이터가 정상적으로 오갔다면 대개 문제가 아닙니다.',
     ],
     resetAfterClose: ['종료 과정에서 RST가 오갔습니다', '연결을 닫은 뒤 남은 것을 정리할 때 흔히 나타납니다. 대개 문제가 아닙니다.'] as [string, string],
+    zeroWindow: (n: number): [string, string] => [
+      `받는 쪽이 꽉 차서 보내는 쪽이 ${n}번 멈췄습니다`,
+      '받는 프로그램이 데이터를 꺼내 가는 속도보다 보내는 속도가 빨랐습니다. 받는 쪽이 창 크기를 0으로 알려 멈추게 하는 것이 TCP의 흐름 제어입니다.',
+    ],
     retransmits: (n: number): [string, string] => [
       `같은 데이터를 ${n}번 다시 보냈습니다`,
       '이미 보낸 구간의 데이터가 시간이 지난 뒤 다시 지나갔습니다. 패킷이 중간에 사라졌거나 확인 응답이 늦었을 때 생깁니다. 와이파이 신호가 약하거나 네트워크가 혼잡할 때 흔하며, 많아지면 체감 속도가 느려집니다. (바로 뒤따라온 것은 순서만 바뀐 것으로 보고 세지 않았습니다.)',
@@ -548,6 +565,13 @@ export const ko = {
     tooLong: '대화가 너무 길어 앞부분만 이었습니다.',
   },
 
+  sampleGroups: {
+    overview: '한눈에 보기',
+    application: '응용 계층',
+    transport: '전송 계층',
+    network: '네트워크 계층',
+    link: '링크 계층',
+  } as Record<string, string>,
   samples: {
     'web-visit': {
       title: '와이파이에 접속해서 웹사이트 열기',
@@ -557,11 +581,56 @@ export const ko = {
       title: '뭔가 잘 안 되는 네트워크',
       description: '오타 난 주소, 꺼진 서버, 방화벽, 느린 서버, 끊기는 연결을 모아 두었습니다. 어디가 문제인지 진단을 읽어 보세요.',
     },
+    'http-connections': {
+      title: 'HTTP 비지속 연결과 지속 연결',
+      description: '같은 두 객체(페이지와 그림)를 받는데, HTTP/1.0은 객체마다 연결을 새로 맺어 대화가 2개이고 HTTP/1.1은 연결 하나로 끝납니다. 대화 수와 연결 맺기 횟수를 비교해 보세요.',
+    },
+    'http-cookie-cache': {
+      title: '쿠키와 조건부 GET',
+      description: '첫 응답의 Set-Cookie와 Last-Modified가 두 번째 요청의 Cookie와 If-Modified-Since로 돌아가고, 서버는 본문 없이 304로 답합니다. "HTTP 메시지" 탭에서 헤더를 비교해 보세요.',
+    },
+    'dns-records': {
+      title: 'DNS 레코드 종류',
+      description: '질문 하나에 답 하나씩 다섯 번 묻습니다: A(IPv4 주소), CNAME(별명), AAAA(IPv6 주소), MX(메일 서버), NS(네임 서버). 답변 패킷을 눌러 DNS 봉투의 "답변"을 보세요.',
+    },
+    'udp-vs-tcp': {
+      title: 'UDP와 TCP 비교',
+      description: '같은 "hello"를 보내고 돌려받는데 UDP는 패킷 2개, TCP는 10개가 오갑니다. TCP가 더 쓰는 패킷이 연결 맺기, 수신 확인, 연결 끊기 중 어디에 속하는지 보세요.',
+    },
+    'tcp-open-close': {
+      title: 'TCP 연결 맺기와 끊기',
+      description: '3단계로 맺고(SYN, SYN+ACK, ACK) 4단계로 끊습니다(FIN, ACK, FIN, ACK). 클라이언트가 먼저 FIN을 보낸 뒤에도 서버가 데이터를 더 보내는 "반쯤 닫힌" 구간이 있습니다.',
+    },
+    'tcp-retransmit': {
+      title: 'TCP 재전송: 타임아웃과 빠른 재전송',
+      description: '첫 대화는 확인이 오지 않아 1초, 다시 2초를 기다렸다 보냅니다(타임아웃, 기다리는 시간이 두 배로). 둘째 대화는 중복 ACK 3개를 받자마자 바로 다시 보냅니다(빠른 재전송). 왼쪽 시각을 비교해 보세요.',
+    },
+    'tcp-flow-control': {
+      title: 'TCP 흐름 제어',
+      description: '받는 쪽이 알리는 창 크기(Window)가 2000, 1000, 0으로 줄어들고, 0이 되면 보내는 쪽이 멈춥니다. 확인 패킷을 눌러 TCP 봉투의 "받을 수 있는 양"을 따라가 보세요.',
+    },
+    dhcp: {
+      title: 'DHCP로 IP 주소 받기',
+      description: '찾기(Discover), 제안(Offer), 요청(Request), 확정(ACK) 4단계입니다. 아직 주소가 없어서 0.0.0.0에서 모두에게(255.255.255.255) 보내는 것과, 함께 받는 공유기 주소·DNS 서버·임대 시간을 보세요.',
+    },
+    'ip-fragment': {
+      title: 'IP 조각화',
+      description: '작은 핑은 패킷 하나로 가지만, 3000바이트짜리 핑은 한 번에 보낼 수 있는 크기(MTU 1500)를 넘어 조각 3개로 나뉩니다. IPv4 봉투의 "쪼개짐"과 "식별 번호"가 조각마다 어떻게 다른지 보세요.',
+    },
+    traceroute: {
+      title: 'traceroute: TTL로 경로 알아내기',
+      description: '수명(TTL)을 1, 2, 3으로 늘려 가며 보내면 길목의 라우터가 차례로 "수명이 다했다"고 알려 옵니다. 알림을 보낸 주소들이 곧 목적지까지의 경로입니다. 네 번째에야 목적지가 답합니다.',
+    },
+    arp: {
+      title: 'ARP로 MAC 주소 알아내기',
+      description: '공유기의 IP 주소만 알 때, 모두에게 물어(브로드캐스트) MAC 주소를 알아낸 뒤에야 핑을 보냅니다. 질문의 받는 장비(ff:ff:…)와 답변의 받는 장비가 어떻게 다른지 이더넷 봉투에서 보세요.',
+    },
   } as Record<string, { title: string; description: string }>,
   sampleBodyLine: '연어가 강을 거슬러 오르듯 패킷도 길을 찾아갑니다.',
 
   ui: {
     openSample: '샘플 열기',
+    samplePoint: '볼 것',
     problems: (n: number) => `문제 있는 대화 ${n}`,
     problemBad: '문제 있음',
     problemWarn: '주의할 점 있음',

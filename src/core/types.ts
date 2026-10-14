@@ -29,6 +29,8 @@ export interface TcpInfo {
   captured: number;
   /** 패킷 안에서 데이터가 시작하는 위치 */
   payloadStart: number;
+  /** 받을 수 있다고 알린 양 (배율을 곱하기 전의 값) */
+  window: number;
 }
 
 export type Stage = 'open' | 'data' | 'close';
@@ -39,7 +41,8 @@ export interface PacketInfo {
   http?: { method?: string; path?: string; status?: number; reason?: string };
   tlsHello?: 'client' | 'server';
   tlsAlert?: { fatal: boolean; code: number };
-  icmp?: { type: number; code: number; v6: boolean; echo?: 'request' | 'reply'; seq?: number };
+  /** aboutSeq: 오류 알림일 때, 그 알림이 가리키는 핑 요청의 순서 번호 */
+  icmp?: { type: number; code: number; v6: boolean; echo?: 'request' | 'reply'; seq?: number; aboutSeq?: number };
   arp?: 'request' | 'reply';
   dhcp?: number;
 }
@@ -97,6 +100,12 @@ export interface TcpState {
   dataBytes: number;
   retransmits: number;
   outOfOrder: number;
+  /** 방향별로 마지막에 알린 확인 번호와, 같은 번호를 연달아 몇 번 더 보냈는지 */
+  lastAck: { a?: number; b?: number };
+  dupAcks: { a: number; b: number };
+  /** 방향별로 마지막에 알린 창 크기 */
+  window: { a?: number; b?: number };
+  zeroWindows: number;
 }
 
 /** 두 상대가 주고받은 패킷 묶음 (하나의 "대화") */
