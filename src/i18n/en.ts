@@ -627,6 +627,7 @@ export const en: Messages = {
   sampleBodyLine: 'Like salmon swimming upstream, packets find their way.',
 
   ui: {
+    goHome: 'Back to the start screen',
     openSample: 'Open sample',
     exportImage: 'Save as image',
     copyImage: 'Copy image',

@@ -629,6 +629,7 @@ export const ko = {
   sampleBodyLine: '연어가 강을 거슬러 오르듯 패킷도 길을 찾아갑니다.',
 
   ui: {
+    goHome: '시작 화면으로',
     openSample: '샘플 열기',
     exportImage: '이미지로 저장',
     copyImage: '이미지 복사',

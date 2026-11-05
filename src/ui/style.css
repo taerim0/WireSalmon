@@ -122,6 +122,15 @@ dd {
   color: var(--accent);
 }
 
+.home {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-weight: inherit;
+  cursor: pointer;
+}
+
 .live {
   display: flex;
   gap: 6px;

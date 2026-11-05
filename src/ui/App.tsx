@@ -130,6 +130,11 @@ export function App() {
     reset(null, null);
   }
 
+  function goHome() {
+    showWelcome();
+    setSampleLocation(null);
+  }
+
   function loadSample(sampleId: string) {
     const sample = SAMPLES.find((sample) => sample.id === sampleId);
     if (!sample) return false;
@@ -266,7 +271,9 @@ export function App() {
       >
         <header className="topbar">
           <h1>
-            <span aria-hidden>🐟</span> WireSalmon
+            <button className="home" onClick={goHome} title={L.ui.goHome}>
+              <span aria-hidden>🐟</span> WireSalmon
+            </button>
           </h1>
           <select
             id="sample-menu"
