@@ -688,7 +688,25 @@ export const en: Messages = {
     step3Off: 'Available when you run it on your own computer with npm run dev and Wireshark (with Npcap) is installed.',
   },
 
+  share: {
+    button: 'Share as link',
+    headers: 'Without contents (recommended)',
+    headersHelp: 'Holds only addresses, ports, times and TCP signals. The flow still reads the same, but DNS names, HTTP contents and status codes, and the site name are left out.',
+    full: 'With contents',
+    fullHelp: 'Holds whole packets. Any unencrypted cookies or passwords go along with them.',
+    warning: 'The packets of this conversation go inside the link. Either way, IP and MAC addresses are included. The link is not sent to a server, but it stays in the history of whatever messenger you paste it into and in browser history.',
+    copy: 'Copy link',
+    copied: 'Copied',
+    copyFailed: 'Could not copy. Please copy the link from the box above.',
+    length: (n) => `Link length: ${n.toLocaleString('en-US')} characters`,
+    tooLong: (n, limit) => `The link is too long at ${n.toLocaleString('en-US')} characters (limit ${limit.toLocaleString('en-US')}) and messengers may cut it. Please send the capture file itself.`,
+    source: 'Conversation from a shared link',
+    receivedHeaders: 'The sender left the contents out. DNS names, HTTP contents and status codes, and the site name are not visible, the kind of conversation is guessed from the port number, and the diagnosis is limited accordingly. Times count from the first packet.',
+    receivedFull: 'The sender included whole packets. Times count from the first packet.',
+  },
+
   errors: {
+    shareBroken: 'The shared link could not be read. It may have been cut off or damaged.',
     format: 'This is not a pcap or pcapng capture file.',
     corrupt: 'The capture file is damaged.',
     read: 'The file could not be read.',

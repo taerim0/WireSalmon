@@ -3,7 +3,9 @@ import { flowTitle } from '../core/describe.ts';
 import { findings, problemOf } from '../core/diagnose.ts';
 import { CaptureError, CaptureReader } from '../core/reader.ts';
 import { SAMPLE_GROUPS, SAMPLES } from '../core/sample.ts';
+import { decodeShare } from '../core/share.ts';
 import { Session } from '../core/session.ts';
+import { httpConversation } from '../core/stream.ts';
 import type { Flow } from '../core/types.ts';
 import { LOCALE_NAMES, LOCALES, type Locale, type Messages } from '../i18n/index.ts';
 import { PacketDetail } from './Detail.tsx';
@@ -18,9 +20,9 @@ interface CaptureInterface {
 }
 
 /** 어디서 온 캡처인지. 언어를 바꿔도 다시 그릴 수 있게 문장이 아니라 재료로 들고 있는다. */
-type Source = { kind: 'sample'; id: string } | { kind: 'file' | 'live'; name: string };
+type Source = { kind: 'sample'; id: string } | { kind: 'file' | 'live'; name: string } | { kind: 'shared'; headersOnly: boolean };
 
-type AppError = { key: 'format' | 'corrupt' | 'read' | 'liveParse' | 'liveConnect' | 'dumpcapMissing' | 'liveLimit' } | { key: 'captureStopped'; detail: string };
+type AppError = { key: 'format' | 'corrupt' | 'read' | 'shareBroken' | 'liveParse' | 'liveConnect' | 'dumpcapMissing' | 'liveLimit' } | { key: 'captureStopped'; detail: string };
 
 /** 실시간 캡처가 브라우저를 멈추게 하지 않도록 두는 상한 */
 const MAX_LIVE_PACKETS = 50000;
@@ -33,10 +35,11 @@ function errorText(error: AppError, L: Messages): string {
 
 function sourceText(source: Source, L: Messages): string {
   if (source.kind === 'sample') return L.ui.sourceSample(L.samples[source.id]?.title ?? source.id);
+  if (source.kind === 'shared') return L.share.source;
   return source.kind === 'file' ? L.ui.sourceFile(source.name) : L.ui.sourceLive(source.name);
 }
 
-/** 주소에는 다시 만들 수 있는 샘플 ID만 남긴다. 파일과 실시간 캡처는 저장하지 않는다. */
+/** 주소에는 다시 만들 수 있는 샘플 ID만 남긴다. 파일과 실시간 캡처는 저장하지 않는다. (공유 링크는 사용자가 직접 복사할 때만 만든다) */
 function setSampleLocation(id: string | null) {
   const url = new URL(location.href);
   url.hash = id ? new URLSearchParams({ sample: id }).toString() : '';
@@ -63,6 +66,8 @@ export function App() {
   const [running, setRunning] = useState(false);
   const socket = useRef<WebSocket | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  /** 공유 링크를 푸는 동안 다른 캡처를 열면 늦게 끝난 결과를 버리기 위한 번호 */
+  const loadRequest = useRef(0);
 
   useEffect(() => {
     fetch('/api/interfaces')
@@ -98,15 +103,15 @@ export function App() {
     setVersion((v) => v + 1);
   }
 
-  // 처음 열 때는 URL에 적힌 샘플을 복원한다.
+  // 처음 열 때는 URL에 적힌 샘플이나 공유된 대화를 복원한다.
   useEffect(() => {
-    restoreSampleFromUrl();
+    restoreFromUrl();
   }, []);
 
   // 언어가 바뀐 뒤의 뒤로/앞으로 이동에도 새 언어로 샘플을 연다.
   useEffect(() => {
-    window.addEventListener('hashchange', restoreSampleFromUrl);
-    return () => window.removeEventListener('hashchange', restoreSampleFromUrl);
+    window.addEventListener('hashchange', restoreFromUrl);
+    return () => window.removeEventListener('hashchange', restoreFromUrl);
   }, [L]);
 
   function selectSample(sampleId: string) {
@@ -115,8 +120,15 @@ export function App() {
     setSampleLocation(sampleId);
   }
 
-  function restoreSampleFromUrl() {
-    const sampleId = new URLSearchParams(location.hash.slice(1)).get('sample');
+  function restoreFromUrl() {
+    const params = new URLSearchParams(location.hash.slice(1));
+    const shared = params.get('capture');
+    if (shared) {
+      void openShared(shared);
+      return;
+    }
+
+    const sampleId = params.get('sample');
     if (!sampleId) {
       showWelcome();
       return;
@@ -124,6 +136,19 @@ export function App() {
 
     const sampleLoaded = loadSample(sampleId);
     if (!sampleLoaded) showWelcome();
+  }
+
+  async function openShared(value: string) {
+    const request = ++loadRequest.current;
+    try {
+      const { capture, headersOnly } = await decodeShare(value);
+      if (request !== loadRequest.current) return;
+      loadBytes(capture, { kind: 'shared', headersOnly });
+    } catch {
+      if (request !== loadRequest.current) return;
+      showWelcome();
+      setError({ key: 'shareBroken' });
+    }
   }
 
   function showWelcome() {
@@ -143,6 +168,7 @@ export function App() {
   }
 
   function reset(session: Session | null, from: Source | null) {
+    loadRequest.current++;
     socket.current?.close();
     sessionRef.current = session;
     setSource(from);
@@ -154,7 +180,7 @@ export function App() {
     setProblemsOnly(false);
     setVersion((v) => v + 1);
 
-    if (from && from.kind !== 'sample') setSampleLocation(null);
+    if (from?.kind === 'file' || from?.kind === 'live') setSampleLocation(null);
   }
 
   function loadBytes(bytes: Uint8Array, from: Source) {
@@ -255,7 +281,8 @@ export function App() {
   // 상세에는 지금 보고 있는 대화의 패킷만 보여 준다. 대화나 필터를 바꾸면 이전 대화의 패킷이 남아 헷갈리기 때문이다.
   const picked = packetNo === null ? null : (session?.packets[packetNo - 1] ?? null);
   const packet = picked && picked.flowId === flow?.id ? picked : null;
-  const hasMessages = flow?.app === 'HTTP';
+  // 내용을 뺀 공유 링크처럼 읽을 메시지가 없으면 탭을 보이지 않는다
+  const hasMessages = flow?.app === 'HTTP' && httpConversation(flow).exchanges.length > 0;
   const view = tab === 'messages' && !hasMessages ? 'flow' : tab;
   const count = (n: number) => n.toLocaleString(L.tag);
 
@@ -337,6 +364,11 @@ export function App() {
         </header>
 
         {error && <div className="error">{errorText(error, L)}</div>}
+        {source?.kind === 'shared' && (
+          <div className="sample-note">
+            <b>{L.share.source}</b> {source.headersOnly ? L.share.receivedHeaders : L.share.receivedFull}
+          </div>
+        )}
         {source?.kind === 'sample' && L.samples[source.id] && (
           <div className="sample-note">
             <b>{L.ui.samplePoint}</b> {L.samples[source.id].description}
@@ -388,7 +420,7 @@ export function App() {
                 <HttpMessages flow={flow} selected={packet?.no ?? null} onSelect={setPacketNo} />
               ) : view === 'flow' ? (
                 flow ? (
-                  <FlowView key={flow.id} flow={flow} names={session.names} now={session.lastTs} selected={packet?.no ?? null} onSelect={setPacketNo} />
+                  <FlowView key={flow.id} flow={flow} raws={session.rawsOf(flow)} names={session.names} now={session.lastTs} selected={packet?.no ?? null} onSelect={setPacketNo} />
                 ) : (
                   <p className="empty">{running ? L.ui.waiting : L.ui.noMatch}</p>
                 )

@@ -2,7 +2,9 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { endpointAddr, endpointName, flowGuide, flowStatus, flowTitle } from '../core/describe.ts';
 import { findings, type Finding } from '../core/diagnose.ts';
 import { timing } from '../core/timing.ts';
+import type { RawPacket } from '../core/reader.ts';
 import { copyFlowImage, drawFlow, saveFlowImage } from './exportFlow.ts';
+import { SharePanel } from './Share.tsx';
 import type { Flow, Packet } from '../core/types.ts';
 import type { Messages } from '../i18n/index.ts';
 import { useMessages } from './locale.ts';
@@ -55,10 +57,11 @@ export function FlowList(props: { flows: Flow[]; names: Map<string, string>; t0:
 const PAGE = 300;
 
 /** 두 상대 사이에 오간 패킷을 화살표로 보여 주는 시퀀스 다이어그램 */
-export function FlowView(props: { flow: Flow; names: Map<string, string>; now: number; selected: number | null; onSelect: (no: number) => void }) {
-  const { flow, names, now, selected, onSelect } = props;
+export function FlowView(props: { flow: Flow; raws: RawPacket[]; names: Map<string, string>; now: number; selected: number | null; onSelect: (no: number) => void }) {
+  const { flow, raws, names, now, selected, onSelect } = props;
   const L = useMessages();
   const [limit, setLimit] = useState(PAGE);
+  const [sharing, setSharing] = useState(false);
   const shown = flow.packets.slice(0, limit);
   const start = flow.firstTs;
   return (
@@ -68,8 +71,14 @@ export function FlowView(props: { flow: Flow; names: Map<string, string>; now: n
           <h2>
             <Badge app={flow.app} /> {flowTitle(flow, names, L)}
           </h2>
-          <ExportButtons flow={flow} shown={shown} names={names} />
+          <span className="flow-actions">
+            <button className={`btn ${sharing ? 'on' : ''}`} onClick={() => setSharing(!sharing)} aria-expanded={sharing}>
+              {L.share.button}
+            </button>
+            <ExportButtons flow={flow} shown={shown} names={names} />
+          </span>
         </div>
+        {sharing && <SharePanel flow={flow} raws={raws} />}
         <p>{flowGuide(flow, L)}</p>
         <div className="chips">
           {flowStatus(flow, L).map((chip) => (
@@ -127,14 +136,14 @@ function ExportButtons({ flow, shown, names }: { flow: Flow; shown: Packet[]; na
     setTimeout(() => setCopy('idle'), 2000);
   }
   return (
-    <span className="flow-actions">
+    <>
       <button className="btn" onClick={() => void saveFlowImage(draw(), name)}>
         {L.ui.exportImage}
       </button>
       <button className="btn" onClick={() => void copyImage()}>
         {copy === 'done' ? L.ui.copied : copy === 'failed' ? L.ui.copyFailed : L.ui.copyImage}
       </button>
-    </span>
+    </>
   );
 }
 

@@ -690,7 +690,25 @@ export const ko = {
     step3Off: '내 컴퓨터에서 npm run dev로 실행하고 Wireshark(Npcap 포함)가 설치되어 있으면 사용할 수 있습니다.',
   },
 
+  share: {
+    button: '링크로 공유',
+    headers: '내용 빼고 (추천)',
+    headersHelp: '주소, 포트, 시각, TCP 신호만 담습니다. 흐름은 그대로 보이지만 DNS 이름, HTTP 내용과 상태 코드, 접속 사이트 이름은 빠집니다.',
+    full: '내용 포함',
+    fullHelp: '패킷 전체를 담습니다. 암호화되지 않은 쿠키나 비밀번호가 있으면 함께 전달됩니다.',
+    warning: '이 대화의 패킷이 링크 안에 들어갑니다. 어느 쪽이든 IP와 MAC 주소는 포함됩니다. 링크는 서버로 가지 않지만, 붙여 넣은 메신저의 기록과 브라우저 방문 기록에 남습니다.',
+    copy: '링크 복사',
+    copied: '복사했습니다',
+    copyFailed: '복사하지 못했습니다. 위 칸의 링크를 직접 복사해 주세요.',
+    length: (n: number) => `링크 길이 ${n.toLocaleString('ko-KR')}자`,
+    tooLong: (n: number, limit: number) => `링크가 ${n.toLocaleString('ko-KR')}자로 너무 깁니다(최대 ${limit.toLocaleString('ko-KR')}자). 메신저에서 잘릴 수 있으니 캡처 파일을 직접 전달해 주세요.`,
+    source: '공유 링크로 받은 대화',
+    receivedHeaders: '보낸 사람이 내용을 빼고 공유했습니다. 그래서 DNS 이름, HTTP 내용과 상태 코드, 접속 사이트 이름은 보이지 않고, 대화 종류는 포트 번호로 짐작한 것이며, 진단도 그만큼 제한됩니다. 시각은 첫 패킷을 0으로 맞춘 값입니다.',
+    receivedFull: '보낸 사람이 패킷 전체를 담아 공유했습니다. 시각은 첫 패킷을 0으로 맞춘 값입니다.',
+  },
+
   errors: {
+    shareBroken: '공유 링크를 읽지 못했습니다. 링크가 잘렸거나 손상되었을 수 있습니다.',
     format: 'pcap 또는 pcapng 형식의 캡처 파일이 아닙니다.',
     corrupt: '캡처 파일이 손상되었습니다.',
     read: '파일을 읽지 못했습니다.',
