@@ -36,6 +36,13 @@ function sourceText(source: Source, L: Messages): string {
   return source.kind === 'file' ? L.ui.sourceFile(source.name) : L.ui.sourceLive(source.name);
 }
 
+/** 주소에는 다시 만들 수 있는 샘플 ID만 남긴다. 파일과 실시간 캡처는 저장하지 않는다. */
+function setSampleLocation(id: string | null) {
+  const url = new URL(location.href);
+  url.hash = id ? new URLSearchParams({ sample: id }).toString() : '';
+  if (url.href !== location.href) history.pushState(null, '', url);
+}
+
 export function App() {
   const [locale, setLocale] = useState<Locale>(initialLocale);
   const L = LOCALES[locale];
@@ -91,7 +98,46 @@ export function App() {
     setVersion((v) => v + 1);
   }
 
-  function reset(session: Session, from: Source) {
+  // 처음 열 때는 URL에 적힌 샘플을 복원한다.
+  useEffect(() => {
+    restoreSampleFromUrl();
+  }, []);
+
+  // 언어가 바뀐 뒤의 뒤로/앞으로 이동에도 새 언어로 샘플을 연다.
+  useEffect(() => {
+    window.addEventListener('hashchange', restoreSampleFromUrl);
+    return () => window.removeEventListener('hashchange', restoreSampleFromUrl);
+  }, [L]);
+
+  function selectSample(sampleId: string) {
+    const sampleLoaded = loadSample(sampleId);
+    if (!sampleLoaded) return;
+    setSampleLocation(sampleId);
+  }
+
+  function restoreSampleFromUrl() {
+    const sampleId = new URLSearchParams(location.hash.slice(1)).get('sample');
+    if (!sampleId) {
+      showWelcome();
+      return;
+    }
+
+    const sampleLoaded = loadSample(sampleId);
+    if (!sampleLoaded) showWelcome();
+  }
+
+  function showWelcome() {
+    reset(null, null);
+  }
+
+  function loadSample(sampleId: string) {
+    const sample = SAMPLES.find((sample) => sample.id === sampleId);
+    if (!sample) return false;
+    loadBytes(sample.build(L.sampleBodyLine), { kind: 'sample', id: sampleId });
+    return true;
+  }
+
+  function reset(session: Session | null, from: Source | null) {
     socket.current?.close();
     sessionRef.current = session;
     setSource(from);
@@ -102,6 +148,8 @@ export function App() {
     setAppFilter(null);
     setProblemsOnly(false);
     setVersion((v) => v + 1);
+
+    if (from && from.kind !== 'sample') setSampleLocation(null);
   }
 
   function loadBytes(bytes: Uint8Array, from: Source) {
@@ -118,11 +166,6 @@ export function App() {
     }
     reset(session, from);
     setError(failure);
-  }
-
-  function openSample(id: string) {
-    const sample = SAMPLES.find((s) => s.id === id);
-    if (sample) loadBytes(sample.build(L.sampleBodyLine), { kind: 'sample', id });
   }
 
   async function openFile(file: File | undefined) {
@@ -229,7 +272,7 @@ export function App() {
             id="sample-menu"
             className="btn"
             value=""
-            onChange={(e) => openSample(e.target.value)}
+            onChange={(e) => selectSample(e.target.value)}
             aria-label={L.ui.openSample}
           >
             <option value="" disabled>
@@ -294,7 +337,7 @@ export function App() {
         )}
 
         {!session ? (
-          <Welcome onSample={openSample} liveAvailable={!!interfaces?.length} />
+          <Welcome onSample={selectSample} liveAvailable={!!interfaces?.length} />
         ) : (
           <main className="panes">
             <aside className="pane flows">

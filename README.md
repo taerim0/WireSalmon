@@ -24,7 +24,7 @@ Files are parsed inside the browser. Nothing is uploaded. See [Privacy](#privacy
 
 ## Built-in samples
 
-Each sample is a small capture that shows one behaviour, grouped the way a computer networks course is usually taught. Opening one shows a line saying what to look at.
+Each sample is a small capture that shows one behaviour, grouped the way a computer networks course is usually taught. Opening one shows a line saying what to look at. The selected sample is kept in the URL, so reloading or sharing the link opens the same sample. Browser back and forward move between samples; capture files and live captures are not restored.
 
 | Layer | Samples |
 |---|---|
