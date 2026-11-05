@@ -423,7 +423,10 @@ export function createDissector(L: Messages) {
         f(m.payload, L.packet.bytes(sentLen)),
       ],
     });
-    if (payload.length === 0) return;
+    if (payload.length === 0) {
+      if (sentLen > 0) labelByPort(p, sentLen);
+      return;
+    }
     // TCP로 보내는 DNS는 메시지 앞에 2바이트 길이가 붙는다. 한 패킷에 온전히 담긴 것만 해석한다.
     if ((sp === 53 || dp === 53) && payload.length >= 14 && u16(d, headerEnd) >= 12 && u16(d, headerEnd) <= payload.length - 2) {
       dns(p, d, headerEnd + 2, end, 'DNS');
@@ -443,7 +446,8 @@ export function createDissector(L: Messages) {
     p.dstPort = dp;
     p.proto = 'UDP';
     p.flowKey = pairKey('udp', `${p.src}#${sp}`, `${p.dst}#${dp}`);
-    p.summary = L.data.sent(Math.max(end - bodyStart, 0));
+    const sentLen = Math.max(u16(d, o + 4) - 8, end - bodyStart, 0);
+    p.summary = L.data.sent(sentLen);
     p.layers.push({
       id: 'udp',
       brief: `${sp} → ${dp}`,
@@ -454,7 +458,10 @@ export function createDissector(L: Messages) {
       end: bodyStart,
       fields: [f(m.srcPort, portText(sp), L.packet.portHelp), f(m.dstPort, portText(dp)), f(m.length, L.packet.bytes(u16(d, o + 4)))],
     });
-    if (end <= bodyStart) return;
+    if (end <= bodyStart) {
+      if (sentLen > 0) labelByPort(p, sentLen);
+      return;
+    }
     const has = (port: number) => sp === port || dp === port;
     if (has(53)) dns(p, d, bodyStart, end, 'DNS');
     else if (has(5353)) dns(p, d, bodyStart, end, 'mDNS');
@@ -467,6 +474,14 @@ export function createDissector(L: Messages) {
       p.summary = L.data.sentQuic(end - bodyStart);
       dataLayer(p, d, bodyStart, end, L.data.roleQuic);
     } else dataLayer(p, d, bodyStart, end);
+  }
+
+  /** 내용이 캡처에 없을 때: 포트 번호로 종류만 짐작한다. DHCP는 방향을 내용에서 읽어야 해서 뺀다. */
+  function labelByPort(p: Packet, length: number) {
+    const port = [p.dstPort, p.srcPort].find((x) => x !== undefined && x in KNOWN_PORTS);
+    if (port === undefined || port === 67 || port === 68) return;
+    p.appLabel = p.proto === 'UDP' && port === 443 ? 'QUIC' : KNOWN_PORTS[port];
+    p.summary = L.data.sentKnown(L.ports[port], length, p.appLabel);
   }
 
   function dataLayer(p: Packet, d: Uint8Array, o: number, end: number, role?: string) {

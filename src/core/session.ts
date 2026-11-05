@@ -44,6 +44,11 @@ export class Session {
   }
 
   /** 같은 캡처를 다른 언어로 다시 해석한다. 패킷 번호와 대화 번호는 그대로 유지된다. */
+  /** 대화에 든 패킷의 원본 (공유 링크를 만들 때 쓴다) */
+  rawsOf(flow: Flow): RawPacket[] {
+    return flow.packets.map((p) => this.raws[p.no - 1]);
+  }
+
   relocalize(L: Messages) {
     const raws = this.raws;
     this.L = L;
