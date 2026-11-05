@@ -3,6 +3,7 @@ import { flowStatus, flowTitle } from '../src/core/describe.ts';
 import { diagnose, problemOf } from '../src/core/diagnose.ts';
 import { CaptureReader } from '../src/core/reader.ts';
 import { buildTroubleSample, buildWebVisitSample, SAMPLE_GROUPS, SAMPLES } from '../src/core/sample.ts';
+import { decodeShare, encodeShare, flowCapture, ShareError } from '../src/core/share.ts';
 import { Session } from '../src/core/session.ts';
 import { httpConversation, pairExchanges, parseHttp, reassemble } from '../src/core/stream.ts';
 import type { Flow } from '../src/core/types.ts';
@@ -315,5 +316,81 @@ assert.match(trace.packets[0].summary, /^\[TTL 1\] Ping request/);
 assert.deepEqual(diagnose(trace.flows[0], trace.names, en, trace.lastTs).map((d) => d.tone), ['info']);
 
 assert.deepEqual(openSample('arp').flows.map((f) => [f.app, f.packets.length]), [['ARP', 2], ['PING', 2]]);
+
+// 공유 링크: 대화 하나를 담아 보내고 받는다
+const shareRoundTrip = async (s: Session, f: Flow, headersOnly: boolean) => {
+  const value = await encodeShare(flowCapture(f.packets, s.rawsOf(f), headersOnly), headersOnly);
+  assert.match(value, /^[hf]\.[\w-]+$/);
+  const decoded = await decodeShare(value);
+  assert.equal(decoded.headersOnly, headersOnly);
+  return { value, bytes: decoded.capture, received: load(decoded.capture) };
+};
+const asText = (bytes: Uint8Array) => Buffer.from(bytes).toString('latin1');
+for (const sample of SAMPLES) {
+  const s = load(sample.build(ko.sampleBodyLine));
+  for (const f of s.flows) {
+    // 내용 포함: 받은 쪽에서 설명까지 똑같이 읽힌다
+    const full = await shareRoundTrip(s, f, false);
+    assert.equal(full.received.flows.length, 1, `${sample.id}: ${f.key}`);
+    assert.deepEqual(full.received.packets.map((p) => p.summary), f.packets.map((p) => p.summary), `${sample.id}: ${f.key}`);
+    assert.deepEqual(full.received.packets.map((p) => Math.round((p.ts - full.received.t0) * 1e6)), f.packets.map((p) => Math.round((p.ts - f.firstTs) * 1e6)));
+    assert.deepEqual(full.received.packets.map((p) => p.origLen), f.packets.map((p) => p.origLen));
+
+    // 내용 빼고: 패킷 수와 TCP 번호·신호·길이는 같고, 응용 계층 내용은 남지 않는다
+    const cut = await shareRoundTrip(s, f, true);
+    assert.equal(cut.received.packets.length, f.packets.length);
+    assert.ok(cut.value.length <= full.value.length + 8, `${sample.id}: ${f.key}`);
+    assert.deepEqual(
+      cut.received.packets.map((p) => p.tcp && [p.tcp.seq, p.tcp.ack, p.tcp.flags, p.tcp.payloadLen, p.tcp.captured]),
+      f.packets.map((p) => p.tcp && [p.tcp.seq, p.tcp.ack, p.tcp.flags, p.tcp.payloadLen, 0]),
+    );
+    assert.ok(cut.received.packets.every((p) => !p.truncated), `${sample.id}: ${f.key}`);
+    const carried = asText(cut.bytes);
+    for (const secret of ['example.', 'session=', 'GET ', 'HTTP/1', 'my-pc']) assert.ok(!carried.includes(secret), `${sample.id}: ${f.key} still carries ${secret}`);
+    if (f.tcp) assert.deepEqual(cut.received.packets.map((p) => p.stage), f.packets.map((p) => p.stage), `${sample.id}: ${f.key}`);
+  }
+}
+
+// 내용을 뺀 대화도 흐름과 재전송은 그대로 읽히고, 종류는 포트로 짐작한다
+const webFlow = session.flows[3];
+const webCut = (await shareRoundTrip(session, webFlow, true)).received;
+assert.deepEqual([webCut.flows[0].app, webCut.flows[0].host, httpConversation(webCut.flows[0]).exchanges.length], ['HTTP', undefined, 0]);
+assert.match(webCut.packets[3].summary, /HTTP/);
+assert.equal(webCut.flows[0].tcp!.dataBytes, webFlow.tcp!.dataBytes);
+const resent = load(SAMPLES.find((s) => s.id === 'tcp-retransmit')!.build(''));
+const resentCut = (await shareRoundTrip(resent, resent.flows[1], true)).received;
+assert.equal(resentCut.flows[0].tcp!.retransmits, 1);
+const traced = load(SAMPLES.find((s) => s.id === 'traceroute')!.build(''));
+assert.equal((await shareRoundTrip(traced, traced.flows[0], true)).received.flows.length, 1);
+
+// 손상되거나 조작된 링크는 오류로 끝나야 한다
+for (const bad of ['', 'x', 'x.AAAA', 'f', 'f.', 'h.@@@@', 'h.AAAAAAAA', `h.${'A'.repeat(70000)}`]) await assert.rejects(decodeShare(bad), ShareError, bad);
+await assert.rejects(decodeShare(await encodeShare(new Uint8Array(5 * 1024 * 1024), true)), ShareError, 'zip bomb');
+const linkValue = await encodeShare(sample, true);
+await assert.rejects(decodeShare(linkValue.slice(0, Math.floor(linkValue.length / 2))), ShareError, 'cut link');
+
+// 아무렇게나 망가진 캡처를 해석해도 해석기, 진단, 시간 분해, 메시지 잇기가 죽으면 안 된다
+let seed = 12345;
+const random = (n: number) => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) % n;
+for (const entry of SAMPLES) {
+  const original = entry.build('x');
+  for (let round = 0; round < 40; round++) {
+    const broken = original.slice();
+    for (let i = 0; i < 30; i++) broken[24 + random(broken.length - 24)] = random(256);
+    const s = new Session(en);
+    try {
+      for (const raw of new CaptureReader().push(broken)) s.add(raw);
+    } catch (e) {
+      assert.equal((e as Error).name, 'Error', String(e));
+    }
+    for (const f of s.flows) {
+      diagnose(f, s.names, en, s.lastTs);
+      timing(f);
+      flowTitle(f, s.names, en);
+      flowStatus(f, en);
+      httpConversation(f);
+    }
+  }
+}
 
 console.log('all checks passed');
