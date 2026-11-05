@@ -12,6 +12,7 @@ Wireshark shows you one packet per line. A beginner wants to know *what just hap
 
 - **Conversations, not packet lines** — packets are grouped into exchanges such as "name lookup: example.com" or "encrypted web traffic: example.com".
 - **Sequence diagram** — each conversation is drawn as arrows between the two sides. TCP is split into opening the connection, exchanging data and closing it. The diagram can be saved as a PNG or copied to paste into notes.
+- **Share as link** — one conversation can be packed into a link, so whoever opens it sees the same flow with nothing to install. Contents are left out by default; addresses, ports, times and TCP signals remain. Links over 8,000 characters are not offered, since messengers may cut them.
 - **Plain-language explanations** — `[SYN, ACK] Seq=0 Ack=1` becomes *"② connection accepted — 'sure, I'm ready too'"*.
 - **Diagnosis** — each conversation says what went wrong and the usual causes: connection refused, no answer, an abrupt reset, resent data, a name that does not exist, a DNS server that stays silent, HTTP errors, unanswered pings. Conversations with problems are marked in the list and can be filtered.
 - **Where the time went** — a conversation is split into name lookup, connecting, encryption hello, waiting for the server and receiving the response, with the slow part pointed out.
@@ -72,6 +73,8 @@ Captures can hold passwords, cookies and internal addresses, so WireSalmon is bu
 - **There is no backend.** The site is static files. Capture files are decoded by JavaScript in your browser, and live capture runs between your own computer and your own browser.
 - **You can check it.** Open the developer tools, switch to the Network tab, then open a capture file. No request appears.
 - **The browser enforces it.** The built site carries a Content Security Policy that forbids connections to any other host. Even if the code changed, requests carrying your data elsewhere (fetch, WebSocket, images, form posts) would be refused by the browser.
+
+- **Share links stay out of servers, not out of sight.** A share link is made only when you ask for one, and its packets sit after the `#`, which browsers do not send to servers. But the link itself holds those packets, including IP and MAC addresses, and stays in the history of wherever you paste it.
 
 Limits worth knowing:
 
