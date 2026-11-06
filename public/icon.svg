@@ -2,9 +2,9 @@
   <!-- 지느러미 모양으로 썬 연어회. 안쪽의 희미한 지방 결이 안쪽으로 갈수록 오른쪽 아래로 몰리며 겹친다. 바깥 긴 곡선에는 하얀 지방 띠가 붙어 있고, 살은 왼쪽이 밝고 오른쪽 아래로 갈수록 살짝 어둡다. -->
   <defs>
     <linearGradient id="flesh" x1="0" y1="0.3" x2="1" y2="1">
-      <stop offset="0" stop-color="#ff5847" />
-      <stop offset="0.55" stop-color="#e8352f" />
-      <stop offset="1" stop-color="#bf1c22" />
+      <stop offset="0" stop-color="#ff9b5e" />
+      <stop offset="0.55" stop-color="#ff7a3c" />
+      <stop offset="1" stop-color="#e35a28" />
     </linearGradient>
     <clipPath id="slice">
       <path d="M4.4 52.5 C3 38 8 22 21 12 C33 4 48 3 56 6 Q61 8 57 10.6 C46 15 41 25 43 36 C44 46 50 51.5 54 55.5 Q57.5 59 52.5 59 L10.5 59 Q4.8 59 4.4 52.5 Z" />
@@ -26,5 +26,5 @@
     <ellipse cx="63" cy="64" rx="15" ry="10" transform="rotate(42 63 64)" stroke-width="2" stroke-opacity="0.34" />
   </g>
   <!-- 밝은 배경에서도 하얀 띠 쪽 윤곽이 보이도록 아주 얇은 테두리를 두른다 -->
-  <path d="M4.4 52.5 C3 38 8 22 21 12 C33 4 48 3 56 6 Q61 8 57 10.6 C46 15 41 25 43 36 C44 46 50 51.5 54 55.5 Q57.5 59 52.5 59 L10.5 59 Q4.8 59 4.4 52.5 Z" fill="none" stroke="#b8161d" stroke-opacity="0.55" stroke-width="0.9" stroke-linejoin="round" />
+  <path d="M4.4 52.5 C3 38 8 22 21 12 C33 4 48 3 56 6 Q61 8 57 10.6 C46 15 41 25 43 36 C44 46 50 51.5 54 55.5 Q57.5 59 52.5 59 L10.5 59 Q4.8 59 4.4 52.5 Z" fill="none" stroke="#cf5426" stroke-opacity="0.55" stroke-width="0.9" stroke-linejoin="round" />
 </svg>
