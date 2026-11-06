@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- 지느러미 모양으로 썬 연어회. 하얀 지방 결이 오른쪽 아래를 중심으로 타원을 그리며 겹친다. -->
+  <defs>
+    <linearGradient id="flesh" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#d81f26" />
+      <stop offset="1" stop-color="#ff4a3d" />
+    </linearGradient>
+    <clipPath id="slice">
+      <path d="M5 59 C2 40 7 22 21 12 C33 4 48 3 60 8 C47 14 41 25 43 36 C44 46 50 53 58 59 Z" />
+    </clipPath>
+  </defs>
+  <path d="M5 59 C2 40 7 22 21 12 C33 4 48 3 60 8 C47 14 41 25 43 36 C44 46 50 53 58 59 Z" fill="url(#flesh)" />
+  <g clip-path="url(#slice)" fill="none" stroke="#fff">
+    <!-- 타원을 살의 대각선 방향으로 기울여, 결이 원처럼 고르지 않고 위쪽으로 길게 휘어 오르게 한다 -->
+    <g transform="rotate(48 58.5 67)">
+      <g stroke-opacity="0.45">
+        <ellipse cx="58.5" cy="67" rx="16" ry="10.5" stroke-width="5" />
+        <ellipse cx="58.5" cy="67" rx="28.5" ry="18.5" stroke-width="5.5" />
+        <ellipse cx="58.5" cy="67" rx="41" ry="26.5" stroke-width="5.5" />
+        <ellipse cx="58.5" cy="67" rx="53.5" ry="34.5" stroke-width="5" />
+      </g>
+      <g stroke-opacity="0.92">
+        <ellipse cx="58.5" cy="67" rx="16" ry="10.5" stroke-width="2" />
+        <ellipse cx="58.5" cy="67" rx="28.5" ry="18.5" stroke-width="2.4" />
+        <ellipse cx="58.5" cy="67" rx="41" ry="26.5" stroke-width="2.4" />
+        <ellipse cx="58.5" cy="67" rx="53.5" ry="34.5" stroke-width="2.2" />
+      </g>
+    </g>
+  </g>
+</svg>

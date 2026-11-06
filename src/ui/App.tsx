@@ -299,7 +299,7 @@ export function App() {
         <header className="topbar">
           <h1>
             <button className="home" onClick={goHome} title={L.ui.goHome}>
-              <span aria-hidden>🐟</span> WireSalmon
+              <img className="logo" src={`${import.meta.env.BASE_URL}icon.svg`} alt="" width={24} height={24} /> WireSalmon
             </button>
           </h1>
           <select

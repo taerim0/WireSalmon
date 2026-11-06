@@ -122,6 +122,11 @@ dd {
   color: var(--accent);
 }
 
+.logo {
+  vertical-align: -4px;
+  margin-right: 2px;
+}
+
 .home {
   padding: 0;
   border: 0;
