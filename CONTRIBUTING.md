@@ -2,7 +2,8 @@
 
 ## Workflow
 
-- Work lands directly on `main`. No pull requests for now.
+- Pull requests are welcome. Fork the repository, work on a branch, and open a pull request against `main`. Say in the description what changed and how you checked it.
+- The maintainer may push small changes directly to `main`.
 - Keep each commit to one logical change, and make sure `npm test` and `npx tsc` pass before pushing.
 - Never commit capture files (`.pcap`, `.pcapng`). They can contain passwords, cookies and internal addresses. Samples are generated in code (`src/core/sample.ts`).
 
