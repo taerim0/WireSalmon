@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- 지느러미 모양으로 썬 연어회. 하얀 지방 결이 안쪽으로 갈수록 오른쪽 아래로 몰리며 겹친다. 바깥 긴 곡선에는 하얀 지방 띠가 붙어 있고, 살은 왼쪽이 밝고 오른쪽 아래로 갈수록 살짝 어둡다. -->
+  <!-- 지느러미 모양으로 썬 연어회. 안쪽의 희미한 지방 결이 안쪽으로 갈수록 오른쪽 아래로 몰리며 겹친다. 바깥 긴 곡선에는 하얀 지방 띠가 붙어 있고, 살은 왼쪽이 밝고 오른쪽 아래로 갈수록 살짝 어둡다. -->
   <defs>
     <linearGradient id="flesh" x1="0" y1="0.3" x2="1" y2="1">
       <stop offset="0" stop-color="#ff5847" />
@@ -12,18 +12,18 @@
   </defs>
   <path d="M4.4 52.5 C3 38 8 22 21 12 C33 4 48 3 56 6 Q61 8 57 10.6 C46 15 41 25 43 36 C44 46 50 51.5 54 55.5 Q57.5 59 52.5 59 L10.5 59 Q4.8 59 4.4 52.5 Z" fill="url(#flesh)" />
   <g clip-path="url(#slice)" fill="none" stroke="#fff">
-    <!-- 바깥 긴 곡선을 따라 붙은 하얀 지방 띠: 테두리 쪽은 진하고 안쪽으로 번진다 -->
-    <path d="M4.4 52.5 C3 38 8 22 21 12 C33 4 48 3 56 6 Q61 8 57 10.6" stroke-width="13" stroke-opacity="0.35" stroke-linejoin="round" />
-    <path d="M4.4 52.5 C3 38 8 22 21 12 C33 4 48 3 56 6 Q61 8 57 10.6" stroke-width="9" stroke-opacity="0.65" stroke-linejoin="round" />
-    <path d="M4.4 52.5 C3 38 8 22 21 12 C33 4 48 3 56 6 Q61 8 57 10.6" stroke-width="5.5" stroke-opacity="0.97" stroke-linejoin="round" />
-    <ellipse cx="58.5" cy="67" rx="53.5" ry="34.5" transform="rotate(48 58.5 67)" stroke-width="5" stroke-opacity="0.45" />
-    <ellipse cx="58.5" cy="67" rx="53.5" ry="34.5" transform="rotate(48 58.5 67)" stroke-width="2.2" stroke-opacity="0.92" />
-    <ellipse cx="60" cy="66" rx="40" ry="26" transform="rotate(46 60 66)" stroke-width="5.5" stroke-opacity="0.45" />
-    <ellipse cx="60" cy="66" rx="40" ry="26" transform="rotate(46 60 66)" stroke-width="2.4" stroke-opacity="0.92" />
-    <ellipse cx="61.5" cy="65" rx="27" ry="17.5" transform="rotate(44 61.5 65)" stroke-width="5.5" stroke-opacity="0.45" />
-    <ellipse cx="61.5" cy="65" rx="27" ry="17.5" transform="rotate(44 61.5 65)" stroke-width="2.4" stroke-opacity="0.92" />
-    <ellipse cx="63" cy="64" rx="15" ry="10" transform="rotate(42 63 64)" stroke-width="5" stroke-opacity="0.45" />
-    <ellipse cx="63" cy="64" rx="15" ry="10" transform="rotate(42 63 64)" stroke-width="2" stroke-opacity="0.92" />
+    <!-- 바깥 긴 곡선을 따라 붙은 하얀 지방 띠: 테두리 쪽은 진하고 안쪽으로 번진다. 아래 단면과 위쪽 끝까지 이어진다. -->
+    <path d="M5.4 64 L4.4 52.5 C3 38 8 22 21 12 C33 4 48 3 56 6 Q61 8 57 10.6 L52 13.5" stroke-width="13" stroke-opacity="0.35" stroke-linejoin="round" />
+    <path d="M5.4 64 L4.4 52.5 C3 38 8 22 21 12 C33 4 48 3 56 6 Q61 8 57 10.6 L52 13.5" stroke-width="9" stroke-opacity="0.65" stroke-linejoin="round" />
+    <path d="M5.4 64 L4.4 52.5 C3 38 8 22 21 12 C33 4 48 3 56 6 Q61 8 57 10.6 L52 13.5" stroke-width="5.5" stroke-opacity="0.97" stroke-linejoin="round" />
+    <ellipse cx="58.5" cy="67" rx="53.5" ry="34.5" transform="rotate(48 58.5 67)" stroke-width="5" stroke-opacity="0.16" />
+    <ellipse cx="58.5" cy="67" rx="53.5" ry="34.5" transform="rotate(48 58.5 67)" stroke-width="2.2" stroke-opacity="0.34" />
+    <ellipse cx="60" cy="66" rx="40" ry="26" transform="rotate(46 60 66)" stroke-width="5.5" stroke-opacity="0.16" />
+    <ellipse cx="60" cy="66" rx="40" ry="26" transform="rotate(46 60 66)" stroke-width="2.4" stroke-opacity="0.34" />
+    <ellipse cx="61.5" cy="65" rx="27" ry="17.5" transform="rotate(44 61.5 65)" stroke-width="5.5" stroke-opacity="0.16" />
+    <ellipse cx="61.5" cy="65" rx="27" ry="17.5" transform="rotate(44 61.5 65)" stroke-width="2.4" stroke-opacity="0.34" />
+    <ellipse cx="63" cy="64" rx="15" ry="10" transform="rotate(42 63 64)" stroke-width="5" stroke-opacity="0.16" />
+    <ellipse cx="63" cy="64" rx="15" ry="10" transform="rotate(42 63 64)" stroke-width="2" stroke-opacity="0.34" />
   </g>
   <!-- 밝은 배경에서도 하얀 띠 쪽 윤곽이 보이도록 아주 얇은 테두리를 두른다 -->
   <path d="M4.4 52.5 C3 38 8 22 21 12 C33 4 48 3 56 6 Q61 8 57 10.6 C46 15 41 25 43 36 C44 46 50 51.5 54 55.5 Q57.5 59 52.5 59 L10.5 59 Q4.8 59 4.4 52.5 Z" fill="none" stroke="#b8161d" stroke-opacity="0.55" stroke-width="0.9" stroke-linejoin="round" />
