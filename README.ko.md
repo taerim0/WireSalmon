@@ -1,4 +1,4 @@
-# 🐟 WireSalmon
+# <img src="public/icon.svg" alt="" width="36" align="top"> WireSalmon
 
 [English](README.md) | **한국어**
 
